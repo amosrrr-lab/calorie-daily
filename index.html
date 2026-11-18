@@ -152,7 +152,15 @@
 <dialog id="activityDialog"><div class="dialog-head"><h2>מקור הפעילות</h2><button class="close" data-close="activityDialog" aria-label="סגירה">×</button></div>
 <div id="nativeControls" hidden><div class="actions"><button id="phoneSource" class="primary">טלפון</button><button id="watchSource" class="secondary">שעון חכם</button></div><label id="originLabel" for="watchOrigin" hidden>אפליקציית השעון ב־Health Connect</label><select id="watchOrigin" hidden></select><div class="actions"><button type="button" id="openWatchApp" class="secondary">פתיחת אפליקציית השעון</button><button type="button" id="openHealthSettings" class="secondary">הגדרות Health Connect</button></div>
 <p id="nativeStatus" class="hint" role="status"></p><button id="refreshActivity" class="primary wide">הרשאה וסנכרון</button></div>
-<p id="webActivityHint" class="hint" hidden>החיבור לנתוני הטלפון והשעון זמין דרך אפליקציית Android של הפיילוט.</p>
+<div id="webActivityHint" hidden>
+<label for="webActivitySource">מקור הנתונים ב־Health Connect</label>
+<select id="webActivitySource"><option value="zepp">Zepp · Amazfit</option><option value="samsung">Samsung Health</option></select>
+<div class="actions">
+<a class="primary" id="webActivitySync" href="#install-activity-sync">סנכרון פעילות</a>
+<a class="secondary" href="./Calorie-Daily-Sync.apk" download>התקנת רכיב סנכרון</a>
+</div>
+<p class="hint" id="webActivityStatus" role="status">בפעם הראשונה מתקינים את הרכיב ומאשרים קריאה ב־Health Connect.</p>
+</div>
 <p class="hint">קלוריות הפעילות היומית מתווספות ליתרה. כשזמינים צעדים בלבד, ההערכה משתמשת במשקל שהזנת.</p>
 <form id="activityForm"><label for="manualCalories">קלוריות פעילות בהזנה ידנית</label><input id="manualCalories" type="number" min="0" max="5000" inputmode="numeric" placeholder="למשל, 300"><p class="hint">ההזנה מחליפה את נתון הפעילות להיום.</p><button class="secondary wide">עדכון ידני</button></form></dialog>
 <dialog id="customProductDialog"><div class="dialog-head"><h2>מוצר חדש</h2><button class="close" data-close="customProductDialog" aria-label="סגירה">×</button></div>

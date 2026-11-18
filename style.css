@@ -109,6 +109,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .actions { display: flex; gap: 9px; margin: 14px 0; }
 .actions > button, .actions > .file-label { flex: 1; min-width: 0; }
 .actions > button { min-height: 48px; }
+#webActivityHint .actions a { flex: 1; display: grid; place-items: center; min-height: 48px; border: 1px solid; border-radius: 14px; padding: 6px; text-align: center; text-decoration: none; font-weight: 700; }
 .meal-actions { margin: 10px 0 13px; }
 .meal-actions > button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 50px; padding-inline: 5px; font-size: 13px; white-space: nowrap; }
 .camera-symbol { position: relative; width: 18px; height: 14px; flex: none; border: 2px solid currentColor; border-radius: 4px; }

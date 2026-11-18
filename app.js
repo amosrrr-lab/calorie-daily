@@ -1,5 +1,6 @@
 import foodRows from './foods-data.js'
 import {searchCatalog} from './catalog.js'
+import {connectWebActivity} from './activity-sync.js'
 const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
 const bridge = window.CalorieAndroid
@@ -789,7 +790,24 @@ function resume() {
 }
 window.calorieResume = resume
 $('nativeControls').hidden = !bridge
-$('webActivityHint').hidden = Boolean(bridge)
+if (!bridge) connectWebActivity({
+  dayKey,
+  journalKey: storageKey,
+  weight: () => state.weight,
+  currentSource: () => state.origin,
+  refreshJournal: () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey))
+      if (saved?.days && typeof saved.days === 'object') state = {...state, ...saved}
+    } catch { /* Retain the in-memory journal. */ }
+    render()
+  },
+  save: ({source, kcal, steps, estimated}) => {
+    state.origin = source
+    storeActivity('watch', kcal, {name:source === 'zepp' ? 'Zepp' : 'Samsung Health', steps, estimated})
+  },
+  notify
+})
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') resume()
 })
