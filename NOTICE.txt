@@ -1,0 +1,11 @@
+OpenAI CLIP ViT-B/32, MIT License, included as CLIP-LICENSE.
+Quantized ONNX model from https://huggingface.co/Xenova/clip-vit-base-patch32
+Food and drink text embeddings were prepared for the application using the CLIP text encoder.
+CLIP similarity thresholds are heuristic abstention rules and are not calibrated accuracy estimates.
+ONNX Runtime Web 1.20.1, Microsoft, MIT License, included as ORT-LICENSE.
+Nutrition data from the Israel Ministry of Health.
+https://data.gov.il/he/datasets/ministry-health/nutrition-database
+
+USDA FoodData Central, SR Legacy April 2018, 7,793 records, CC0.
+Original English descriptions and FDC IDs retained. Hebrew search aliases added for common food terms. Values refer to 100 grams.
+https://fdc.nal.usda.gov/download-datasets/
