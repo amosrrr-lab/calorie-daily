@@ -92,7 +92,7 @@ function render() {
   const active = Math.round(workoutCalories ?? 0)
   $('activeTotal').textContent = workoutCalories === null ? '—' : active ? '+' + fmt(active) : '0'
   const mealPlan = state.goal?.times ?? []
-  $('routineCard').hidden = !mealPlan.length
+  $('todayMealTimes').hidden = !mealPlan.length
   showMealTimes($('todayMealTimes'), mealPlan)
   const available = (state.target ?? 0) + active
   const balance = Math.round(available - eaten)
@@ -448,9 +448,7 @@ function openGoal() {
   $('goalSex').value = profile.sex ?? ''
   $('goalActivity').value = profile.activity ?? ''
   $('favoriteActivity').value = profile.favorite ?? ''
-  $('wakeTime').value = profile.wake ?? '07:00'
-  $('sleepTime').value = profile.sleep ?? '23:00'
-  $('mealFrequency').value = profile.meals ?? 3
+  setMealHourFields($('setupMealHours'), state.goal?.times ?? [])
   $('weightInput').value = state.weight ?? 70
   $('manualWeightInput').value = state.weight ?? ''
   $('skipEstimate').checked = profile.skipEstimate ?? state.goal?.targetMode === 'schedule'
@@ -462,22 +460,29 @@ function openGoal() {
   $('goalIntro').querySelector('h3').focus({preventScroll:true})
 }
 
-function clockMinutes(clock) {
-  const [hour, minute] = clock.split(':').map(Number)
-  return hour * 60 + minute
+function addMealHourField(list, value = '') {
+  const number = list.children.length + 1
+  const row = element('div', '')
+  const input = element('input', '')
+  input.id = `${list.id}-${number}`
+  input.type = 'time'
+  input.dir = 'ltr'
+  input.value = value
+  const label = element('label', `ארוחה ${number}`)
+  label.htmlFor = input.id
+  row.append(label, input)
+  list.append(row)
+  return input
 }
 
-function awakeMinutes(wake, sleep) {
-  return (clockMinutes(sleep) - clockMinutes(wake) + 1440) % 1440
+function setMealHourFields(list, times) {
+  list.replaceChildren()
+  for (const time of times) addMealHourField(list, time)
+  while (list.children.length < 3) addMealHourField(list)
 }
 
-function mealTimes(wake, sleep, count) {
-  const first = clockMinutes(wake) + 60
-  const interval = (awakeMinutes(wake, sleep) - 180) / (count - 1)
-  return Array.from({length:count}, (_, index) => {
-    const minute = Math.round((first + index * interval) / 15) * 15 % 1440
-    return String(Math.floor(minute / 60)).padStart(2, '0') + ':' + String(minute % 60).padStart(2, '0')
-  })
+function readMealHours(list) {
+  return [...list.querySelectorAll('input')].map((input) => input.value).filter(Boolean)
 }
 
 function showMealTimes(list, times) {
@@ -504,6 +509,7 @@ function reviewGoal(mode, target, note = '') {
   if (mode !== 'manual') {
     $('reviewBmi').textContent = bodyMassIndex().toFixed(1)
     $('planReviewNote').textContent = note
+    $('reviewMeals').hidden = !goalDraft.times.length
     showMealTimes($('reviewMeals'), goalDraft.times)
     const favorite = $('favoriteActivity')
     $('reviewActivity').textContent = favorite.value
@@ -521,11 +527,9 @@ function calculatePlan() {
   const sex = $('goalSex').value
   const activity = $('goalActivity').value
   const direction = document.querySelector('[name="goalDirection"]:checked').value
-  const wake = $('wakeTime').value
-  const sleep = $('sleepTime').value
-  const meals = number('mealFrequency')
   const favorite = $('favoriteActivity').value
-  goalDraft = {direction, weight, profile:{age, height, sex, activity, wake, sleep, meals, favorite}, times:mealTimes(wake, sleep, meals)}
+  const times = readMealHours($('setupMealHours'))
+  goalDraft = {direction, weight, profile:{...state.goal?.profile, age, height, sex, activity, favorite}, times}
   if ($('skipEstimate').checked) return reviewGoal('schedule', null)
   const resting = 10 * weight + 6.25 * height - 5 * age + (sex === 'male' ? 5 : -161)
   const adjustment = direction === 'lose' ? -250 : direction === 'gain' ? 250 : 0
@@ -542,8 +546,7 @@ function nextGoalStep() {
   const required = {
     1:['goalHeight'], 2:['weightInput'], 3:['goalAge'],
     4:skipEstimate ? [] : ['goalSex'],
-    5:skipEstimate ? [] : ['goalActivity'],
-    6:['wakeTime','sleepTime']
+    5:skipEstimate ? [] : ['goalActivity']
   }
   const invalid = (required[goalStep] ?? []).map($).find((field) => !field.value || !field.checkValidity())
   if (invalid) {
@@ -551,14 +554,8 @@ function nextGoalStep() {
     invalid.focus()
     return
   }
-  if (goalStep === finalGoalStep - 1) {
-    const hours = awakeMinutes($('wakeTime').value, $('sleepTime').value)
-    if (hours < 6 * 60 || hours > 22 * 60) {
-      $('goalMessage').textContent = 'בחר שעות קימה ושינה שביניהן לפחות 6 שעות ועד 22 שעות.'
-      return
-    }
-    calculatePlan()
-  } else showGoalStep(goalStep + 1)
+  if (goalStep === finalGoalStep - 1) calculatePlan()
+  else showGoalStep(goalStep + 1)
 }
 
 function previousGoalStep() {
@@ -570,7 +567,21 @@ function previousGoalStep() {
 
 $('settingsButton').addEventListener('click', openGoal)
 $('setupButton').addEventListener('click', openGoal)
-$('editPlanButton').addEventListener('click', openGoal)
+$('editPlanButton').addEventListener('click', () => {
+  setMealHourFields($('editMealHours'), state.goal?.times ?? [])
+  $('mealHoursDialog').showModal()
+})
+$('addSetupMealHour').addEventListener('click', () => addMealHourField($('setupMealHours')).focus())
+$('addEditMealHour').addEventListener('click', () => addMealHourField($('editMealHours')).focus())
+$('mealHoursForm').addEventListener('submit', (event) => {
+  event.preventDefault()
+  const times = readMealHours($('editMealHours'))
+  state.goal = {...state.goal, times}
+  persist()
+  render()
+  $('mealHoursDialog').close()
+  notify('שעות הארוחות נשמרו')
+})
 $('goalNext').addEventListener('click', nextGoalStep)
 $('goalBack').addEventListener('click', previousGoalStep)
 $('manualGoalButton').addEventListener('click', () => reviewGoal('manual', state.target))
