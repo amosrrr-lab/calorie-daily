@@ -11,18 +11,25 @@ async function readJSON(name) {
   return response.json()
 }
 async function loadModel() {
-  const manifest = await readJSON('clip-manifest.json')
-  const pieces = await Promise.all(manifest.parts.map(async (name) => {
-    const response = await fetch(new URL(name, base))
-    if (!response.ok) throw new Error('Image recognition model could not be loaded')
-    return new Uint8Array(await response.arrayBuffer())
-  }))
-  const bytes = new Uint8Array(pieces.reduce((total, part) => total + part.length, 0))
+  const manifest = await readJSON('clip-manifest.json?v=2')
+  const bytes = new Uint8Array(manifest.byteLength)
   let offset = 0
-  for (const part of pieces) {
-    bytes.set(part, offset)
-    offset += part.length
+  for (const name of manifest.parts) {
+    const response = await fetch(new URL(name, base))
+    if (!response.ok || !response.body) throw new Error('Image recognition model could not be loaded')
+    const reader = response.body.getReader()
+    try {
+      for (;;) {
+        const {done, value} = await reader.read()
+        if (done) break
+        bytes.set(value, offset)
+        offset += value.length
+      }
+    } finally {
+      await reader.cancel()
+    }
   }
+  if (offset !== bytes.length) throw new Error('Incomplete image recognition model')
   return ort.InferenceSession.create(bytes, {executionProviders:['wasm']})
 }
 function load() {

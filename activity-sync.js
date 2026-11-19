@@ -15,6 +15,10 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
   const sync = get('webActivitySync')
   const status = get('webActivityStatus')
   get('webActivityHint').hidden = false
+  const showStatus = (message) => {
+    status.textContent = message
+    notify(message)
+  }
   if (currentSource() === 'samsung') source.value = 'samsung'
 
   sync.addEventListener('click', (event) => {
@@ -23,6 +27,7 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
       const key = encode(crypto.getRandomValues(new Uint8Array(32)))
       localStorage.setItem(pendingKey, JSON.stringify({key, source:source.value, expires:Date.now() + expiresAfter}))
       const fallback = encodeURIComponent(site + installHash)
+      status.textContent = 'ממתין לתוצאת סנכרון מ־Health Connect…'
       sync.href = `intent://activity/sync?key=${key}&source=${source.value}#Intent;scheme=caloriedaily;package=il.amosrrr.calories.sync;S.browser_fallback_url=${fallback};end`
     } catch {
       event.preventDefault()
@@ -55,20 +60,32 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
       if (!/^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{24,500}$/.test(response)) return
       const raw = localStorage.getItem(pendingKey)
       const pending = JSON.parse(raw)
-      if (!pending || Date.now() > pending.expires) return
+      if (!pending || Date.now() > pending.expires) {
+        showStatus('הסנכרון הקודם לא זוהה בכרום. לחץ שוב על סנכרון פעילות.')
+        return
+      }
       const [iv, ciphertext] = response.split('.').map(decode)
       const key = await crypto.subtle.importKey('raw', decode(pending.key), 'AES-GCM', false, ['decrypt'])
       const json = await crypto.subtle.decrypt({
         name:'AES-GCM', iv, additionalData:new TextEncoder().encode(site)
       }, key, ciphertext)
       const result = JSON.parse(new TextDecoder().decode(json))
-      if (result.source !== pending.source || result.date !== dayKey() || localStorage.getItem(pendingKey) !== raw) return
+      if (localStorage.getItem(pendingKey) !== raw || result.source !== pending.source) return
+      if (result.date !== dayKey()) {
+        showStatus('התחיל יום חדש. לחץ שוב על סנכרון פעילות.')
+        return
+      }
       localStorage.removeItem(pendingKey)
 
       if (result.status !== 'ok') {
-        notify(result.status === 'empty'
-          ? 'אין עדיין נתוני פעילות מהמקור שנבחר. בדוק שהוא משתף נתונים עם Health Connect.'
-          : 'הסנכרון לא הצליח. בדוק הרשאות קריאה ב־Health Connect.')
+        const name = result.source === 'zepp' ? 'Zepp' : 'Samsung Health'
+        const messages = {
+          empty: `לא התקבלו היום צעדים או קלוריות פעילות מ־${name} ב־Health Connect.`,
+          permission: 'לא ניתנה לרכיב הסנכרון הרשאת קריאה ב־Health Connect.',
+          read: 'Health Connect החזיר שגיאה בקריאת הפעילות. בדוק הרשאות לרכיב הסנכרון.',
+          unavailable: 'Health Connect אינו זמין במכשיר הזה.'
+        }
+        showStatus(messages[result.status] ?? 'סנכרון הפעילות לא הושלם.')
         return
       }
 
@@ -77,14 +94,16 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
       refreshJournal()
       const kg = weight()
       if (calories === null && (steps === null || !Number.isFinite(kg) || kg <= 0)) {
-        notify('נקראו צעדים בלבד. הזן משקל כדי לקבל הערכת קלוריות.')
+        showStatus('נקראו צעדים בלבד. הזן משקל כדי לקבל הערכת קלוריות.')
         return
       }
       source.value = result.source
       save({source:result.source, kcal:calories ?? steps * kg * .0005, steps, estimated:calories === null})
-      notify('הפעילות סונכרנה והיתרה עודכנה')
+      showStatus(calories === null
+        ? 'היתרה עודכנה בהערכת קלוריות לפי הצעדים שנקלטו.'
+        : 'קלוריות הפעילות נקלטו והיתרה עודכנה.')
     } catch {
-      notify('לא ניתן לקרוא את תוצאת הסנכרון. לחץ שוב על ״סנכרון פעילות״.')
+      showStatus('לא ניתן לקרוא את תוצאת הסנכרון. לחץ שוב על ״סנכרון פעילות״.')
     }
   }
 

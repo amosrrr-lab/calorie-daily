@@ -1,9 +1,11 @@
 import foodRows from './foods-data.js'
 import {searchCatalog} from './catalog.js'
-import {connectWebActivity} from './activity-sync.js'
+import {connectWebActivity} from './activity-sync.js?v=2'
+import {connectBalanceWidget} from './balance-widget.js'
 const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
 const bridge = window.CalorieAndroid
+let updateBalanceWidget = () => {}
 const storageKey = 'calories-per-day.v1'
 let state = {target: null, weight: null, source: 'manual', origin: '', days: {}, customFoods:[], externalFoods:[]}
 try {
@@ -96,7 +98,9 @@ function render() {
   $('routineCard').hidden = !mealPlan.length
   showMealTimes($('todayMealTimes'), mealPlan)
   const available = (state.target ?? 0) + active
-  $('remaining').textContent = hasTarget ? fmt(available - eaten) : '—'
+  const balance = Math.round(available - eaten)
+  $('remaining').textContent = hasTarget ? fmt(balance) : '—'
+  updateBalanceWidget({date:dayKey(), target:Math.round(state.target ?? 0), balance})
   const progress = hasTarget ? Math.min(100, Math.round(eaten / available * 100)) : 0
   $('meterFill').style.width = progress + '%'
   $('meterFill').parentElement.setAttribute('aria-valuenow', progress)
@@ -672,8 +676,10 @@ async function recognize(file) {
   $('otherPhotoFood').hidden = false
   $('photoStatus').textContent = 'מנתח את התמונה במכשיר…'
   try {
-    const model = await import('./vision.js')
     await image.decode()
+    if (run !== photoRun) return
+    $('photoStatus').textContent = 'טוען את זיהוי המזון. בפעם הראשונה זה עשוי לקחת מעט זמן…'
+    const model = await import('./vision.js?v=2')
     if (run !== photoRun) return
     const suggestions = await model.predict(image)
     if (run !== photoRun) return
@@ -685,9 +691,16 @@ async function recognize(file) {
       : 'הזיהוי לא מספיק ברור. חפש את המזון במאגר כדי להמשיך.'
     const choices = names.includes('פיתה') ? ['פיתה', 'פיתה כוסמין']
       : suggestions[0]?.label === 'coffee' ? ['נס קפה', 'סוגי קפה'] : names
-    $('photoCandidates').replaceChildren(...choices.map((name) => button(name, 'secondary', () => {
-      searchForFood(name === 'סוגי קפה' ? 'קפה' : name)
-    })))
+    $('photoCandidates').replaceChildren(...choices.map((name) => {
+      const query = normalize(name)
+      const match = foods.find((food) => normalize(food.name) === query && Number.isFinite(food.kcal))
+      const choice = button(name, 'secondary', () => {
+        if (match) selectFood(match)
+        else searchForFood(name === 'סוגי קפה' ? 'קפה' : name)
+      })
+      if (match) choice.append(element('span', ' · ' + fmt(match.kcal) + ' קלוריות ל־100 ' + (match.unit === 'ml' ? 'מ״ל' : 'גרם')))
+      return choice
+    }))
   } catch {
     if (run === photoRun) $('photoStatus').textContent = 'לא הצלחנו לנתח את התמונה. אפשר להמשיך בחיפוש במאגר.'
   }
@@ -808,6 +821,7 @@ if (!bridge) connectWebActivity({
   },
   notify
 })
+if (!bridge) updateBalanceWidget = connectBalanceWidget()
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') resume()
 })

@@ -1,5 +1,5 @@
 <!doctype html><html lang="he" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css"><script type="module" src="app.js?v=widget-1"></script></head>
 <body><div class="shell">
 <header class="app-header">
   <strong class="brand"><span class="brand-mark" aria-hidden="true"></span>קלוריות ביום</strong>
@@ -39,7 +39,12 @@
   <section class="card activity-card">
     <div class="row"><div><h2>פעילות</h2><p class="hint" id="activityStatus">טרם נוספה פעילות היום</p></div><button class="quiet header-button" id="activityButton">הגדרה</button></div>
   </section>
-</main><footer>היומן נשמר במכשיר הזה.<br><a href="privacy.html">פרטיות ומקורות המידע</a></footer>
+</main><footer>היומן נשמר במכשיר הזה.<br><a href="privacy.html">פרטיות ומקורות המידע</a>
+<div id="balanceWidgetSettings" hidden>
+<a id="setupBalanceWidget" href="#home-widget-install">הוספת ווידג׳ט יתרה למסך הבית</a>
+<p id="balanceWidgetStatus" class="hint" role="status" hidden></p>
+<a id="installBalanceWidget" href="./Calorie-Daily-Sync-v2.apk" download hidden>עדכון רכיב הסנכרון לווידג׳ט</a>
+</div></footer>
 </div>
 <dialog id="settingsDialog" class="goal-dialog" aria-labelledby="goalTitle">
   <div class="dialog-head"><h2 id="goalTitle">היעד שלי</h2><button class="close" data-close="settingsDialog" aria-label="סגירה">×</button></div>
@@ -159,7 +164,7 @@
 <a class="primary" id="webActivitySync" href="#install-activity-sync">סנכרון פעילות</a>
 <a class="secondary" href="./Calorie-Daily-Sync.apk" download>התקנת רכיב סנכרון</a>
 </div>
-<p class="hint" id="webActivityStatus" role="status">בפעם הראשונה מתקינים את הרכיב ומאשרים קריאה ב־Health Connect.</p>
+<p class="hint" id="webActivityStatus" role="status">בחר מקור ולחץ על סנכרון כדי לקרוא את הפעילות של היום.</p>
 </div>
 <p class="hint">קלוריות הפעילות היומית מתווספות ליתרה. כשזמינים צעדים בלבד, ההערכה משתמשת במשקל שהזנת.</p>
 <form id="activityForm"><label for="manualCalories">קלוריות פעילות בהזנה ידנית</label><input id="manualCalories" type="number" min="0" max="5000" inputmode="numeric" placeholder="למשל, 300"><p class="hint">ההזנה מחליפה את נתון הפעילות להיום.</p><button class="secondary wide">עדכון ידני</button></form></dialog>
