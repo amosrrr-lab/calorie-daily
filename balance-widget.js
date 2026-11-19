@@ -10,8 +10,14 @@ export function connectBalanceWidget() {
   const settings = document.getElementById('balanceWidgetSettings')
   const status = document.getElementById('balanceWidgetStatus')
   const setup = document.getElementById('setupBalanceWidget')
+  const guide = document.getElementById('balanceWidgetGuide')
+  const connectFromGuide = document.getElementById('connectBalanceFromGuide')
   const update = document.getElementById('updateBalanceWidgetComponent')
   settings.hidden = false
+  document.getElementById('showBalanceWidgetGuide').addEventListener('click', (event) => {
+    event.preventDefault()
+    guide.showModal()
+  })
   const tell = (message) => {
     status.textContent = message
     status.hidden = false
@@ -42,7 +48,8 @@ export function connectBalanceWidget() {
     fallbackUrl.searchParams.set(launchFallback, '1')
     const fallback = encodeURIComponent(fallbackUrl.href)
     setup.href = `intent://activity/widget?key=${key}#Intent;scheme=caloriedaily;package=il.amosrrr.calories.sync;S.browser_fallback_url=${fallback};end`
-    setup.addEventListener('click', (event) => {
+    connectFromGuide.href = setup.href
+    const beginPairing = (event) => {
       if (event.defaultPrevented) return
       try {
         localStorage.setItem(pendingKey, key)
@@ -52,12 +59,15 @@ export function connectBalanceWidget() {
         return
       }
       update.hidden = true
+      if (guide.open) guide.close()
       tell('פותח את חלון ההוספה של אנדרואיד…')
       clearTimeout(launchTimer)
       launchTimer = setTimeout(() => {
         if (document.visibilityState === 'visible') showLaunchHelp()
       }, 2500)
-    })
+    }
+    setup.addEventListener('click', beginPairing)
+    connectFromGuide.addEventListener('click', beginPairing)
   } catch {
     tell('כדי להוסיף ווידג׳ט, אפשר אחסון מקומי בכרום.')
     return () => {}

@@ -1,7 +1,7 @@
 import foodRows from './foods-data.js'
 import {searchCatalog} from './catalog.js'
-import {connectWebActivity} from './activity-sync.js?v=4'
-import {connectBalanceWidget} from './balance-widget.js?v=3'
+import {connectWebActivity} from './activity-sync.js?v=workout-setup-1'
+import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
 const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
 const bridge = window.CalorieAndroid
@@ -42,8 +42,8 @@ function button(text, className, action) {
   return node
 }
 function activityCalories(activity) {
-  if (activity?.estimated) return 0
-  return Number.isFinite(activity?.kcal) ? activity.kcal : 0
+  const kcal = activity?.source === 'manual' ? activity.kcal : activity?.workoutKcal
+  return Number.isFinite(kcal) && kcal >= 0 ? kcal : null
 }
 const itemCalories = (item) => item.grams * item.kcal / 100
 const mealCalories = (meal) => meal.items.reduce((sum, item) => sum + itemCalories(item), 0)
@@ -88,8 +88,9 @@ function render() {
   $('targetStat').hidden = !hasTarget
   $('targetTotal').textContent = hasTarget ? fmt(state.target) : '—'
   $('eaten').textContent = fmt(eaten)
-  const active = Math.round(activityCalories(activity))
-  $('activeTotal').textContent = active ? '+' + fmt(active) : '0'
+  const workoutCalories = activityCalories(activity)
+  const active = Math.round(workoutCalories ?? 0)
+  $('activeTotal').textContent = workoutCalories === null ? '—' : active ? '+' + fmt(active) : '0'
   const mealPlan = state.goal?.times ?? []
   $('routineCard').hidden = !mealPlan.length
   showMealTimes($('todayMealTimes'), mealPlan)
@@ -100,38 +101,10 @@ function render() {
   const progress = hasTarget ? Math.min(100, Math.round(eaten / available * 100)) : 0
   $('meterFill').style.width = progress + '%'
   $('meterFill').parentElement.setAttribute('aria-valuenow', progress)
-  const sources = {phone:'טלפון', watch:'שעון חכם', manual:'ידני'}
-  const summaries = []
-  if (activity) {
-    summaries.push([sources[activity.source], activity.name].filter(Boolean).join(' · '))
-    if (Number.isFinite(activity.regularSteps)) {
-      summaries.push(fmt(activity.regularSteps) + ' צעדים מחוץ לאימונים')
-    } else if (Number.isFinite(activity.steps)) {
-      summaries.push(fmt(activity.steps) + ' צעדים לאורך היום')
-    }
-    if (Number.isFinite(activity.kcal) && !activity.estimated) {
-      summaries.push(fmt(activity.kcal) + ' קלוריות פעילות ביום')
-    }
-    const stepEstimate = activity.stepEstimate ?? (activity.estimated ? activity.kcal : null)
-    if (Number.isFinite(stepEstimate)) {
-      summaries.push(fmt(stepEstimate) + ' קלוריות בהערכה מצעדים בלבד')
-    }
-  }
-  $('activityStatus').textContent = summaries.length ? summaries.join(' · ') : 'טרם נוספה פעילות היום'
-  const workout = $('workoutStatus')
-  workout.hidden = !activity || activity.source === 'manual'
-  if (!workout.hidden) {
-    const workoutMessages = {
-      none: 'לא התקבל אימון מתועד היום',
-      permission: 'נדרשת הרשאת קריאה של אימונים',
-      read: 'קריאת האימונים נכשלה',
-      'no-calories': 'האימון נקלט, אך אין נתוני קלוריות שאפשר לשייך אליו'
-    }
-    workout.textContent = 'אימונים · ' + (Number.isFinite(activity.workoutKcal)
-      ? fmt(activity.workoutKcal) + ' קלוריות באימונים שתועדו'
-      : workoutMessages[activity.workoutState] ?? 'נדרש סנכרון עם רכיב שתומך בקריאת אימונים')
-  }
-  $('activityButton').textContent = activity ? 'עדכון' : 'הגדרה'
+  $('activityStatus').textContent = workoutCalories !== null
+    ? [activity.name, fmt(active) + (hasTarget ? ' קלוריות מאימונים נוספו ליתרה' : ' קלוריות מאימונים נקלטו היום')].filter(Boolean).join(' · ')
+    : 'טרם נקלטו קלוריות מאימון להיום'
+  $('activityButton').textContent = state.origin ? 'מקור האימונים' : 'חיבור אימונים'
   $('mealCount').textContent = day.meals.length ? day.meals.length + (day.meals.length === 1 ? ' ארוחה' : ' ארוחות') : ''
   $('emptyJournal').hidden = day.meals.length > 0
   $('journal').replaceChildren(...[...day.meals].reverse().map((meal) => {
@@ -815,7 +788,7 @@ window.onCalorieNative = (raw) => {
   $('nativeStatus').textContent = result.message ?? ''
   if (result.ok && result.hasData !== false && (result.userInitiated || result.source === state.source) && result.date === dayKey()) {
     state.origin = result.origin ?? ''
-    storeActivity(result.source, result.kcal, {name:result.name, steps:result.steps, estimated:result.estimated})
+    storeActivity(result.source, result.kcal, {name:result.name, steps:result.steps, estimated:result.estimated, workoutKcal:result.workoutKcal})
   }
   if (result.ok && result.hasData === false && result.userInitiated) {
     state.source = result.source
@@ -834,7 +807,6 @@ $('nativeControls').hidden = !bridge
 if (!bridge) connectWebActivity({
   dayKey,
   journalKey: storageKey,
-  weight: () => state.weight,
   currentSource: () => state.origin,
   refreshJournal: () => {
     try {
@@ -843,9 +815,9 @@ if (!bridge) connectWebActivity({
     } catch { /* Retain the in-memory journal. */ }
     render()
   },
-  save: ({source, kcal, ...details}) => {
+  save: ({source, workoutKcal}) => {
     state.origin = source
-    storeActivity('watch', kcal, {...details, name:source === 'zepp' ? 'Zepp' : 'Samsung Health'})
+    storeActivity('watch', workoutKcal, {workoutKcal, name:source === 'zepp' ? 'Zepp' : 'Samsung Health'})
   },
   notify
 })
