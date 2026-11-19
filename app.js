@@ -1,4 +1,5 @@
 import foodRows from './foods-data.js'
+import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js'
 import {connectWebActivity} from './activity-sync.js?v=workout-setup-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
@@ -52,11 +53,11 @@ let currentFood
 let draft = []
 let editingMeal
 let editingItem = null
-const foods = foodRows.map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
+const foods = [...foodRows, ...soupRows].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
   id, name, kcal, portions:portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
   sourceUrl,
-  search:normalize(name + ' ' + (aliases ?? ''))
+  search:normalize([name, aliases, commonSoups.get(id)].join(' '))
 }))
 for (const personal of [...(state.customFoods ?? []), ...(state.externalFoods ?? [])]) {
   foods.push({...personal, search:normalize(personal.name)})
@@ -131,13 +132,15 @@ function normalize(text) {
 }
 function searchRank(food, query) {
   if (normalize(food.name) === query) return 0
+  const soupName = commonSoups.get(food.id)
+  if (soupName && (query === 'מרק' || query === soupName)) return 1
   if (food.source === 'USDA') return 5
   if (query === 'קפה' && [4806, 4809, 4810, 4812, 4814, 4800, 4803].includes(food.id)) return 1
   if (query === 'סלט' && [9704, 3895, 9418, 3898, 9383].includes(food.id)) return 1
   return food.search.startsWith(query) ? 2 : 3
 }
 function updateSearch() {
-  const query = normalize($('foodSearch').value).replace(/^נס\s*קפה/, 'קפה')
+  const query = normalize($('foodSearch').value).replace(/^נס\s*קפה/, 'קפה').replace(/^מרקים(?= |$)/, 'מרק')
   const results = $('searchResults')
   queueCatalog($('foodSearch').value.trim())
   if (!query) { results.replaceChildren(); return }
