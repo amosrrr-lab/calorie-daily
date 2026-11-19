@@ -691,15 +691,23 @@ async function recognize(file) {
       : 'הזיהוי לא מספיק ברור. חפש את המזון במאגר כדי להמשיך.'
     const choices = names.includes('פיתה') ? ['פיתה', 'פיתה כוסמין']
       : suggestions[0]?.label === 'coffee' ? ['נס קפה', 'סוגי קפה'] : names
-    $('photoCandidates').replaceChildren(...choices.map((name) => {
+    $('photoCandidates').replaceChildren(...choices.flatMap((name) => {
+      if (name === 'סוגי קפה' || name === 'נס קפה') {
+        return [button(name, 'secondary', () => searchForFood('קפה'))]
+      }
       const query = normalize(name)
-      const match = foods.find((food) => normalize(food.name) === query && Number.isFinite(food.kcal))
-      const choice = button(name, 'secondary', () => {
-        if (match) selectFood(match)
-        else searchForFood(name === 'סוגי קפה' ? 'קפה' : name)
+      const exact = foods.find((food) => normalize(food.name) === query && Number.isFinite(food.kcal))
+      const matches = exact ? [exact] : foods.filter((food) => {
+        const label = normalize(food.name)
+        return label.startsWith(query + ' ') && Number.isFinite(food.kcal)
+          && !/(^| )(לא אפוי|לא מבושל|לא מוכן|בצק)( |$)/.test(label)
+      }).sort((a, b) => searchRank(a, query) - searchRank(b, query) || a.name.length - b.name.length).slice(0, 2)
+      if (!matches.length) return [button(name, 'secondary', () => searchForFood(name))]
+      return matches.map((food) => {
+        const choice = button(food.name, 'secondary', () => selectFood(food))
+        choice.append(element('span', ' · ' + fmt(food.kcal) + ' קלוריות ל־100 ' + (food.unit === 'ml' ? 'מ״ל' : 'גרם')))
+        return choice
       })
-      if (match) choice.append(element('span', ' · ' + fmt(match.kcal) + ' קלוריות ל־100 ' + (match.unit === 'ml' ? 'מ״ל' : 'גרם')))
-      return choice
     }))
   } catch {
     if (run === photoRun) $('photoStatus').textContent = 'לא הצלחנו לנתח את התמונה. אפשר להמשיך בחיפוש במאגר.'
