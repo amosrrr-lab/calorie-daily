@@ -1,7 +1,7 @@
 import foodRows from './foods-data.js'
 import {searchCatalog} from './catalog.js'
 import {connectWebActivity} from './activity-sync.js?v=4'
-import {connectBalanceWidget} from './balance-widget.js?v=2'
+import {connectBalanceWidget} from './balance-widget.js?v=3'
 const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
 const bridge = window.CalorieAndroid
