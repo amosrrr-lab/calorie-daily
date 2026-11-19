@@ -28,7 +28,7 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
       localStorage.setItem(pendingKey, JSON.stringify({key, source:source.value, expires:Date.now() + expiresAfter}))
       const fallback = encodeURIComponent(site + installHash)
       status.textContent = 'ממתין לתוצאת סנכרון מ־Health Connect…'
-      sync.href = `intent://activity/sync?key=${key}&source=${source.value}#Intent;scheme=caloriedaily;package=il.amosrrr.calories.sync;S.browser_fallback_url=${fallback};end`
+      sync.href = `intent://activity/workout-sync?key=${key}&source=${source.value}#Intent;scheme=caloriedaily;package=il.amosrrr.calories.sync;S.browser_fallback_url=${fallback};end`
     } catch {
       event.preventDefault()
       status.textContent = 'אין גישה לאחסון המקומי בכרום. פתח את האפליקציה מחוץ למצב גלישה בסתר.'
@@ -42,7 +42,7 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
   function handleHash() {
     if (location.hash === installHash) {
       clearHash()
-      status.textContent = 'כדי להתחבר לשעון, לחץ על ״התקנת רכיב סנכרון״ ולאחר ההתקנה לחץ שוב על ״סנכרון פעילות״.'
+      status.textContent = 'כדי להתחבר לשעון, לחץ על ״התקנת רכיב סנכרון״ ועדכן את הרכיב הקיים. לאחר ההתקנה לחץ שוב על ״סנכרון פעילות״.'
       const dialog = get('activityDialog')
       if (!dialog.open && !document.querySelector('dialog[open]')) dialog.showModal()
       else notify(status.textContent)
@@ -89,19 +89,24 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
         return
       }
 
-      const steps = Number.isSafeInteger(result.steps) && result.steps >= 0 ? result.steps : null
-      const calories = Number.isFinite(result.kcal) && result.kcal >= 0 ? result.kcal : null
-      refreshJournal()
+      const count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null
+      const energy = (value) => Number.isFinite(value) && value >= 0 ? value : null
+      const steps = count(result.steps)
+      const dailyCalories = energy(result.kcal)
+      const workout = energy(result.workoutKcal)
+      const regularSteps = count(result.regularSteps)
       const kg = weight()
-      if (calories === null && (steps === null || !Number.isFinite(kg) || kg <= 0)) {
-        showStatus('נקראו צעדים בלבד. הזן משקל כדי לקבל הערכת קלוריות.')
-        return
-      }
+      const estimateSteps = regularSteps ?? steps
+      const stepEstimate = dailyCalories === null && estimateSteps !== null && Number.isFinite(kg) && kg > 0
+        ? estimateSteps * kg * .0005 : null
+      refreshJournal()
       source.value = result.source
-      save({source:result.source, kcal:calories ?? steps * kg * .0005, steps, estimated:calories === null})
-      showStatus(calories === null
-        ? 'היתרה עודכנה בהערכת קלוריות לפי הצעדים שנקלטו.'
-        : 'קלוריות הפעילות נקלטו והיתרה עודכנה.')
+      save({source:result.source, kcal:dailyCalories ?? workout, steps, regularSteps, stepEstimate,
+        workoutKcal:workout, workoutState:result.workoutState})
+      if (result.workoutState === 'permission') showStatus('הפעילות נקלטה. כדי להפריד אימונים, אשר גם קריאה של אימונים ב־Health Connect.')
+      else if (result.workoutState === 'no-calories') showStatus('האימון נקלט, אך אין קלוריות שאפשר לשייך אליו.')
+      else if (dailyCalories === null && workout === null) showStatus('נקראו צעדים. אומדן מצעדים מוצג בנפרד מהאימון ומהיתרה.')
+      else showStatus('נתוני הפעילות נקלטו והיתרה עודכנה.')
     } catch {
       showStatus('לא ניתן לקרוא את תוצאת הסנכרון. לחץ שוב על ״סנכרון פעילות״.')
     }

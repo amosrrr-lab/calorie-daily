@@ -1,6 +1,6 @@
 import foodRows from './foods-data.js'
 import {searchCatalog} from './catalog.js'
-import {connectWebActivity} from './activity-sync.js?v=2'
+import {connectWebActivity} from './activity-sync.js?v=3'
 import {connectBalanceWidget} from './balance-widget.js'
 const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
@@ -42,12 +42,8 @@ function button(text, className, action) {
   return node
 }
 function activityCalories(activity) {
-  if (Number.isFinite(activity?.kcal)) return activity.kcal
-  // Recover the central estimate from activity saved by older versions.
-  if (Number.isFinite(activity?.low) && Number.isFinite(activity?.high)) {
-    return (activity.low + activity.high) / 2
-  }
-  return 0
+  if (activity?.estimated) return 0
+  return Number.isFinite(activity?.kcal) ? activity.kcal : 0
 }
 const itemCalories = (item) => item.grams * item.kcal / 100
 const mealCalories = (meal) => meal.items.reduce((sum, item) => sum + itemCalories(item), 0)
@@ -105,12 +101,36 @@ function render() {
   $('meterFill').style.width = progress + '%'
   $('meterFill').parentElement.setAttribute('aria-valuenow', progress)
   const sources = {phone:'טלפון', watch:'שעון חכם', manual:'ידני'}
-  $('activityStatus').textContent = activity ? [
-    sources[activity.source], activity.name,
-    Number.isFinite(activity.steps) ? fmt(activity.steps) + ' צעדים' : '',
-    activity.estimated ? 'הערכה מצעדים' : '',
-    fmt(active) + ' קלוריות'
-  ].filter(Boolean).join(' · ') : 'טרם נוספה פעילות היום'
+  const summaries = []
+  if (activity) {
+    summaries.push([sources[activity.source], activity.name].filter(Boolean).join(' · '))
+    if (Number.isFinite(activity.regularSteps)) {
+      summaries.push(fmt(activity.regularSteps) + ' צעדים מחוץ לאימונים')
+    } else if (Number.isFinite(activity.steps)) {
+      summaries.push(fmt(activity.steps) + ' צעדים לאורך היום')
+    }
+    if (Number.isFinite(activity.kcal) && !activity.estimated) {
+      summaries.push(fmt(activity.kcal) + ' קלוריות פעילות ביום')
+    }
+    const stepEstimate = activity.stepEstimate ?? (activity.estimated ? activity.kcal : null)
+    if (Number.isFinite(stepEstimate)) {
+      summaries.push(fmt(stepEstimate) + ' קלוריות בהערכה מצעדים בלבד')
+    }
+  }
+  $('activityStatus').textContent = summaries.length ? summaries.join(' · ') : 'טרם נוספה פעילות היום'
+  const workout = $('workoutStatus')
+  workout.hidden = !activity || activity.source === 'manual'
+  if (!workout.hidden) {
+    const workoutMessages = {
+      none: 'לא התקבל אימון מתועד היום',
+      permission: 'נדרשת הרשאת קריאה של אימונים',
+      read: 'קריאת האימונים נכשלה',
+      'no-calories': 'האימון נקלט, אך אין נתוני קלוריות שאפשר לשייך אליו'
+    }
+    workout.textContent = 'אימונים · ' + (Number.isFinite(activity.workoutKcal)
+      ? fmt(activity.workoutKcal) + ' קלוריות באימונים שתועדו'
+      : workoutMessages[activity.workoutState] ?? 'נדרש סנכרון עם רכיב שתומך בקריאת אימונים')
+  }
   $('activityButton').textContent = activity ? 'עדכון' : 'הגדרה'
   $('mealCount').textContent = day.meals.length ? day.meals.length + (day.meals.length === 1 ? ' ארוחה' : ' ארוחות') : ''
   $('emptyJournal').hidden = day.meals.length > 0
@@ -823,9 +843,9 @@ if (!bridge) connectWebActivity({
     } catch { /* Retain the in-memory journal. */ }
     render()
   },
-  save: ({source, kcal, steps, estimated}) => {
+  save: ({source, kcal, ...details}) => {
     state.origin = source
-    storeActivity('watch', kcal, {name:source === 'zepp' ? 'Zepp' : 'Samsung Health', steps, estimated})
+    storeActivity('watch', kcal, {...details, name:source === 'zepp' ? 'Zepp' : 'Samsung Health'})
   },
   notify
 })
