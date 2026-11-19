@@ -9,7 +9,6 @@ export function connectBalanceWidget() {
   const settings = document.getElementById('balanceWidgetSettings')
   const status = document.getElementById('balanceWidgetStatus')
   const setup = document.getElementById('setupBalanceWidget')
-  const install = document.getElementById('installBalanceWidget')
   settings.hidden = false
   const tell = (message) => {
     status.textContent = message
@@ -41,8 +40,7 @@ export function connectBalanceWidget() {
     const hash = location.hash
     history.replaceState(history.state, '', location.pathname + location.search)
     if (hash === installHash) {
-      install.hidden = false
-      tell('התקן את העדכון לרכיב הסנכרון, ואז לחץ שוב על הוספת ווידג׳ט.')
+      tell('הווידג׳ט זקוק לרכיב שתומך בו. אם כבר הוספת אותו, בדוק גם בלחיצה ארוכה על מסך הבית ← ווידג׳טים ← יתרת קלוריות.')
       settings.scrollIntoView({block:'nearest'})
       return
     }

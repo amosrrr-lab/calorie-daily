@@ -1,6 +1,7 @@
 const pendingKey = 'calorie-daily.health-sync.pending'
 const responsePrefix = '#activity-sync='
 const installHash = '#install-activity-sync'
+const workoutFallback = '#workout-sync-unavailable'
 const expiresAfter = 10 * 60 * 1000
 const site = 'https://amosrrr-lab.github.io/calorie-daily/'
 
@@ -21,28 +22,57 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
   }
   if (currentSource() === 'samsung') source.value = 'samsung'
 
-  sync.addEventListener('click', (event) => {
-    if (event.defaultPrevented) return
-    try {
-      const key = encode(crypto.getRandomValues(new Uint8Array(32)))
-      localStorage.setItem(pendingKey, JSON.stringify({key, source:source.value, expires:Date.now() + expiresAfter}))
-      const fallback = encodeURIComponent(site + installHash)
-      status.textContent = 'ממתין לתוצאת סנכרון מ־Health Connect…'
-      sync.href = `intent://activity/workout-sync?key=${key}&source=${source.value}#Intent;scheme=caloriedaily;package=il.amosrrr.calories.sync;S.browser_fallback_url=${fallback};end`
-    } catch {
-      event.preventDefault()
-      status.textContent = 'אין גישה לאחסון המקומי בכרום. פתח את האפליקציה מחוץ למצב גלישה בסתר.'
+  const workoutSync = get('webWorkoutSync')
+  const install = get('webSyncInstall')
+  let responseTimer
+  function bind(link, path, fallbackHash) {
+    let key
+    const prepare = () => {
+      key = encode(crypto.getRandomValues(new Uint8Array(32)))
+      const fallback = encodeURIComponent(site + fallbackHash)
+      link.href = `intent://activity/${path}?key=${key}&source=${source.value}#Intent;scheme=caloriedaily;package=il.amosrrr.calories.sync;S.browser_fallback_url=${fallback};end`
     }
-  })
+    prepare()
+    source.addEventListener('change', prepare)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') prepare()
+    })
+    link.addEventListener('click', (event) => {
+      if (event.defaultPrevented) return
+      try {
+        const request = JSON.stringify({key, source:source.value, expires:Date.now() + expiresAfter})
+        localStorage.setItem(pendingKey, request)
+        status.textContent = 'ממתין לתוצאת סנכרון מ־Health Connect…'
+        clearTimeout(responseTimer)
+        responseTimer = setTimeout(() => {
+          if (localStorage.getItem(pendingKey) === request && document.visibilityState === 'visible') {
+            status.textContent = 'עדיין לא חזרה תשובה מרכיב הסנכרון. אם נפתח מסך הרשאות, השלם אותו וחזור ליומן.'
+          }
+        }, 16000)
+      } catch {
+        event.preventDefault()
+        status.textContent = 'אין גישה לאחסון המקומי בכרום. פתח את האפליקציה מחוץ למצב גלישה בסתר.'
+      }
+    })
+  }
+
+  bind(sync, 'sync', installHash)
+  bind(workoutSync, 'workout-sync', workoutFallback)
 
   function clearHash() {
     history.replaceState(history.state, '', location.pathname + location.search)
   }
 
   function handleHash() {
-    if (location.hash === installHash) {
+    if (location.hash === installHash || location.hash === workoutFallback) {
+      const missingWorkout = location.hash === workoutFallback
+      clearTimeout(responseTimer)
+      localStorage.removeItem(pendingKey)
       clearHash()
-      status.textContent = 'כדי להתחבר לשעון, לחץ על ״התקנת רכיב סנכרון״ ועדכן את הרכיב הקיים. לאחר ההתקנה לחץ שוב על ״סנכרון פעילות״.'
+      install.hidden = missingWorkout || Boolean(currentSource())
+      status.textContent = missingWorkout
+        ? 'אפשר לקרוא קלוריות פעילות דרך הרכיב הקיים. לחץ על ״סנכרון פעילות״.'
+        : 'כרום לא הצליח לפתוח את רכיב הסנכרון. אם הוא כבר מותקן, פתח את היומן בכרום ונסה שוב.'
       const dialog = get('activityDialog')
       if (!dialog.open && !document.querySelector('dialog[open]')) dialog.showModal()
       else notify(status.textContent)
@@ -75,8 +105,8 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
         showStatus('התחיל יום חדש. לחץ שוב על סנכרון פעילות.')
         return
       }
+      clearTimeout(responseTimer)
       localStorage.removeItem(pendingKey)
-
       if (result.status !== 'ok') {
         const name = result.source === 'zepp' ? 'Zepp' : 'Samsung Health'
         const messages = {
@@ -92,7 +122,7 @@ export function connectWebActivity({dayKey, weight, journalKey, currentSource, r
       const count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null
       const energy = (value) => Number.isFinite(value) && value >= 0 ? value : null
       const steps = count(result.steps)
-      const dailyCalories = energy(result.kcal)
+      const dailyCalories = result.estimated ? null : energy(result.kcal)
       const workout = energy(result.workoutKcal)
       const regularSteps = count(result.regularSteps)
       const kg = weight()
