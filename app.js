@@ -7,6 +7,23 @@ const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
 const bridge = window.CalorieAndroid
 let updateBalanceWidget = () => {}
+
+const hotDrinks = new Map([
+  [4806, ['נס קפה (קפה נמס)', 'קפה אינסטנט נס קפה קפה נמס']],
+  [4808, ['נס קפה, נטול קפאין', 'קפה אינסטנט נס קפה קפה נמס']],
+  [4800, ['קפה פילטר', 'קפה טחון קפה רגיל']],
+  [4803, ['אספרסו או קפה שחור, לא ממותק', 'קפה טורקי קפה שחור']],
+  [4804, ['אספרסו, נטול קפאין', 'קפה שחור']],
+  [4814, ['קפה הפוך (קפוצ׳ינו)', 'קפה הפוך קפוצינו קפוצ ינו']],
+  [4815, ['קפה הפוך (קפוצ׳ינו), נטול קפאין', 'קפה הפוך קפוצינו קפוצ ינו']],
+  [4832, ['תה, לא ממותק', 'תה שחור']],
+  [9594, ['תה ירוק, לא ממותק', 'תה ירוק']],
+  [4838, ['תה צמחים (חליטה)', 'חליטת צמחים תה צמחים']],
+  ['usda-171277', ['שוקו חם, ביתי', 'משקה קקאו שוקו חם']]
+])
+const sweetenedHotDrinks = new Set([4801, 4802, 4809, 4810, 4811, 4812, 4828, 4829, 4833, 4834, 4835, 4836, 4837])
+const acceptsAddedSugar = (id) => hotDrinks.has(id) || sweetenedHotDrinks.has(id)
+const sugarKcalPerTeaspoon = 387 * 4 / 100 // White sugar in the catalog, 4 g per level teaspoon.
 const storageKey = 'calories-per-day.v1'
 let state = {target: null, weight: null, source: 'manual', origin: '', days: {}, customFoods:[], externalFoods:[]}
 try {
@@ -46,7 +63,7 @@ function activityCalories(activity) {
   const kcal = activity?.source === 'manual' ? activity.kcal : activity?.workoutKcal
   return Number.isFinite(kcal) && kcal >= 0 ? kcal : null
 }
-const itemCalories = (item) => item.grams * item.kcal / 100
+const itemCalories = (item) => item.grams * item.kcal / 100 + (item.sugarTeaspoons ?? 0) * sugarKcalPerTeaspoon
 const mealCalories = (meal) => meal.items.reduce((sum, item) => sum + itemCalories(item), 0)
 let toastTimer
 let currentFood
@@ -54,10 +71,11 @@ let draft = []
 let editingMeal
 let editingItem = null
 const foods = [...foodRows, ...soupRows].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
-  id, name, kcal, portions:portions ?? [],
+  id, name:hotDrinks.get(id)?.[0] ?? name, kcal,
+  portions:id === 4803 ? [['אספרסו קצר', 30], ['אספרסו כפול', 60], ['כוס קפה שחור', 130]] : portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
   sourceUrl,
-  search:normalize([name, aliases, commonSoups.get(id)].join(' '))
+  search:normalize([name, aliases, commonSoups.get(id), ...(hotDrinks.get(id) ?? [])].join(' '))
 }))
 for (const personal of [...(state.customFoods ?? []), ...(state.externalFoods ?? [])]) {
   foods.push({...personal, search:normalize(personal.name)})
@@ -123,7 +141,8 @@ function render() {
   }))
 }
 function formatQuantity(item) {
-  return item.grams + (item.unit === 'ml' ? ' מ״ל' : ' גרם')
+  const quantity = item.grams + (item.unit === 'ml' ? ' מ״ל' : ' גרם')
+  return item.sugarTeaspoons ? quantity + ' · ' + item.sugarTeaspoons + ' כפ׳ סוכר' : quantity
 }
 function normalize(text) {
   return text.normalize('NFKD').replace(/[\u0591-\u05c7]/g, '')
@@ -134,18 +153,20 @@ function searchRank(food, query) {
   if (normalize(food.name) === query) return 0
   const soupName = commonSoups.get(food.id)
   if (soupName && (query === 'מרק' || query === soupName)) return 1
+  if (hotDrinks.has(food.id) && /^(משקאות חמים|קפה|נס קפה|תה|שוקו|הפוך|אספרסו|חליטת צמחים)( |$)/.test(query)) return 1
   if (food.source === 'USDA') return 5
-  if (query === 'קפה' && [4806, 4809, 4810, 4812, 4814, 4800, 4803].includes(food.id)) return 1
   if (query === 'סלט' && [9704, 3895, 9418, 3898, 9383].includes(food.id)) return 1
   return food.search.startsWith(query) ? 2 : 3
 }
 function updateSearch() {
-  const query = normalize($('foodSearch').value).replace(/^נס\s*קפה/, 'קפה').replace(/^מרקים(?= |$)/, 'מרק')
+  const query = normalize($('foodSearch').value).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
   const results = $('searchResults')
   queueCatalog($('foodSearch').value.trim())
   if (!query) { results.replaceChildren(); return }
   const terms = query.split(' ')
-  const matches = foods.filter((food) => terms.every((term) => food.search.includes(term)))
+  const matches = foods.filter((food) => query === 'משקאות חמים'
+    ? hotDrinks.has(food.id)
+    : terms.every((term) => food.search.includes(term)))
     .map((food) => ({food, rank:searchRank(food, query)}))
     .sort((a, b) => a.rank - b.rank || a.food.name.length - b.food.name.length || a.food.name.localeCompare(b.food.name, 'he'))
     .slice(0, 18).map(({food}) => food)
@@ -158,6 +179,9 @@ function updateSearch() {
 function selectFood(food, quantity) {
   currentFood = food
   $('selectedFood').textContent = food.name
+  $('drinkSugar').hidden = !acceptsAddedSugar(food.id)
+  $('sugarTeaspoons').disabled = $('drinkSugar').hidden
+  $('sugarTeaspoons').value = food.sugarTeaspoons ?? ''
   const online = food.source === 'Open Food Facts'
   $('quantityUnit').hidden = $('quantityUnitLabel').hidden = !online
   $('quantityUnit').required = online
@@ -182,6 +206,8 @@ function selectFood(food, quantity) {
 function clearSelection() {
   currentFood = undefined
   $('grams').value = 100
+  $('sugarTeaspoons').disabled = true
+  $('sugarTeaspoons').value = ''
   $('quantityUnit').required = false
   $('portion').hidden = $('addItem').hidden = true
   $('saveMeal').disabled = !draft.length
@@ -205,7 +231,7 @@ function resetPhoto() {
 function renderDraft() {
   $('draftList').replaceChildren(...draft.map((item, index) => {
     const row = element('li', '')
-    row.append(element('span', item.name + ' · ' + item.grams + (item.unit === 'ml' ? ' מ״ל · ' : ' גרם · ') + fmt(itemCalories(item)) + ' קלוריות'))
+    row.append(element('span', item.name + ' · ' + formatQuantity(item) + ' · ' + fmt(itemCalories(item)) + ' קלוריות'))
     const actions = element('div', '')
     actions.append(button('עריכה', 'quiet', () => {
       const itemIndex = draft.indexOf(item)
@@ -248,7 +274,8 @@ function addSelected() {
   if (!currentFood) return true
   if (!$('grams').reportValidity()) return false
   const {id, name, kcal} = currentFood
-  if (!$('quantityUnit').reportValidity()) return false
+  if (!$('quantityUnit').reportValidity() || !$('sugarTeaspoons').reportValidity()) return false
+  const sugarTeaspoons = acceptsAddedSugar(id) ? Number($('sugarTeaspoons').value) : 0
   const unit = $('quantityUnit').value || currentFood.unit || 'g'
   if (currentFood.source === 'Open Food Facts') {
     const saved = state.externalFoods?.find((food) => food.id === id)
@@ -257,6 +284,7 @@ function addSelected() {
     if (available) available.unit = unit
   }
   const item = {id, name, kcal, grams:Number($('grams').value), unit}
+  if (sugarTeaspoons > 0) item.sugarTeaspoons = sugarTeaspoons
   if (editingItem === null) draft.push(item)
   else draft[editingItem] = item
   editingItem = null
@@ -700,7 +728,7 @@ async function recognize(file) {
       : suggestions[0]?.label === 'coffee' ? ['נס קפה', 'סוגי קפה'] : names
     $('photoCandidates').replaceChildren(...choices.flatMap((name) => {
       if (name === 'סוגי קפה' || name === 'נס קפה') {
-        return [button(name, 'secondary', () => searchForFood('קפה'))]
+        return [button(name, 'secondary', () => searchForFood(name === 'נס קפה' ? name : 'קפה'))]
       }
       const query = normalize(name)
       const exact = foods.find((food) => normalize(food.name) === query && Number.isFinite(food.kcal))
