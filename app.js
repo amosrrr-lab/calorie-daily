@@ -103,7 +103,11 @@ let draft = []
 let editingMeal
 let editingMisc
 let editingItem = null
-const foods = [...foodRows, ...soupRows].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
+// Estimate per 100 g: 80 g stewed thigh meat, 15 g green olives, and 5 g sauce with about 2.5 g oil.
+const cookedChickenWithOlives = ['chicken-olive-stew', 'חלקי עוף מבושל עם זיתים מבושלים', 200, [],
+  'תבשיל עוף זיתים ירוקים עוף וזיתים עוף מבושל בזיתים כרעיים שוקיים ירכיים פרגית',
+  'הערכה לתבשיל ביתי']
+const foods = [...foodRows, ...soupRows, cookedChickenWithOlives].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
   id, name:hotDrinks.get(id)?.[0] ?? name, kcal,
   portions:id === 4803 ? [['אספרסו קצר', 30], ['אספרסו כפול', 60], ['כוס קפה שחור', 130]] : portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
