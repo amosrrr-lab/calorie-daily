@@ -44,6 +44,8 @@ function notify(message) {
   toastTimer = setTimeout(() => { $('toast').hidden = true }, 3200)
 }
 function persist() {
+  const day = state.days[dayKey()]
+  if (hasJournalData(day)) day.target = state.target ?? null
   try { localStorage.setItem(storageKey, JSON.stringify(state)) }
   catch { notify('לא ניתן לשמור ביומן במכשיר הזה') }
 }
@@ -65,6 +67,18 @@ function activityCalories(activity) {
 }
 const itemCalories = (item) => item.grams * item.kcal / 100 + (item.sugarTeaspoons ?? 0) * sugarKcalPerTeaspoon
 const mealCalories = (meal) => meal.items.reduce((sum, item) => sum + itemCalories(item), 0)
+function hasJournalData(day) {
+  return Boolean(day?.meals?.length) || activityCalories(day?.activity) !== null
+}
+
+function summarizeDay(day, target) {
+  const eaten = (day.meals ?? []).reduce((sum, meal) => sum + mealCalories(meal), 0)
+  const workoutCalories = activityCalories(day.activity)
+  const active = Math.round(workoutCalories ?? 0)
+  const available = (target ?? 0) + active
+  return {eaten, workoutCalories, active, available, balance:Math.round(available - eaten)}
+}
+
 let toastTimer
 let currentFood
 let draft = []
@@ -98,7 +112,8 @@ let goalReviewMode = ''
 
 function render() {
   const day = today()
-  const eaten = day.meals.reduce((sum, meal) => sum + mealCalories(meal), 0)
+  if (hasJournalData(day) && day.target === undefined) persist()
+  const {eaten, workoutCalories, active, available, balance} = summarizeDay(day, state.target)
   const activity = day.activity
   $('date').textContent = new Intl.DateTimeFormat('he-IL', {weekday:'long', day:'numeric', month:'long'}).format(new Date())
   const hasTarget = Boolean(state.target)
@@ -107,14 +122,10 @@ function render() {
   $('targetStat').hidden = !hasTarget
   $('targetTotal').textContent = hasTarget ? fmt(state.target) : '—'
   $('eaten').textContent = fmt(eaten)
-  const workoutCalories = activityCalories(activity)
-  const active = Math.round(workoutCalories ?? 0)
   $('activeTotal').textContent = workoutCalories === null ? '—' : active ? '+' + fmt(active) : '0'
   const mealPlan = state.goal?.times ?? []
   $('todayMealTimes').hidden = !mealPlan.length
   showMealTimes($('todayMealTimes'), mealPlan)
-  const available = (state.target ?? 0) + active
-  const balance = Math.round(available - eaten)
   $('remaining').textContent = hasTarget ? fmt(balance) : '—'
   updateBalanceWidget({date:dayKey(), target:Math.round(state.target ?? 0), balance})
   const progress = hasTarget ? Math.min(100, Math.round(eaten / available * 100)) : 0
@@ -669,7 +680,21 @@ $('settingsForm').addEventListener('submit', (event) => {
 })
 
 function renderHistory() {
-  const meals = state.days[$('historyDate').value]?.meals ?? []
+  const day = state.days[$('historyDate').value]
+  $('historySummary').hidden = !day
+  const meals = day?.meals ?? []
+  $('historyNoMeals').hidden = !day || meals.length > 0
+  if (day) {
+    const historicalTarget = day.target !== undefined
+    const target = historicalTarget ? day.target : state.target
+    const {eaten, workoutCalories, active, balance} = summarizeDay(day, target)
+    $('historyTarget').textContent = target ? fmt(target) : '—'
+    $('historyEaten').textContent = fmt(eaten)
+    $('historyWorkout').textContent = workoutCalories === null ? '—' : fmt(active)
+    $('historyBalanceLabel').textContent = target && balance < 0 ? 'חריגה מהיעד' : 'יתרה לסוף היום'
+    $('historyBalance').textContent = target ? fmt(Math.abs(balance)) : '—'
+    $('historyNote').hidden = historicalTarget || !target
+  }
   $('historyList').replaceChildren(...[...meals].reverse().map((meal) => {
     const row = element('li', '')
     const content = element('div', '', 'entry')
@@ -681,7 +706,7 @@ function renderHistory() {
 }
 $('historyButton').addEventListener('click', () => {
   const dates = Object.entries(state.days)
-    .filter(([date, day]) => date !== dayKey() && day.meals?.length)
+    .filter(([date, day]) => date !== dayKey() && hasJournalData(day))
     .map(([key]) => {
       const [year, month, day] = key.split('-').map(Number)
       return {key, date:new Date(year, month - 1, day)}

@@ -1,5 +1,5 @@
 <!doctype html><html lang="he" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css"><script type="module" src="app.js?v=hot-drinks-1"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css"><script type="module" src="app.js?v=history-summary-1"></script></head>
 <body><div class="shell">
 <header class="app-header">
   <strong class="brand"><span class="brand-mark" aria-hidden="true"></span>קלוריות ביום</strong>
@@ -144,7 +144,17 @@
 <dialog id="historyDialog" aria-labelledby="historyTitle">
   <div class="dialog-head"><h2 id="historyTitle">יומן קודם</h2><button class="close" data-close="historyDialog" aria-label="סגירה">×</button></div>
   <label for="historyDate">יום ביומן</label><select id="historyDate"></select>
-  <p class="hint" id="historyEmpty">ימים עם ארוחות שמורות יופיעו כאן.</p>
+  <p class="hint" id="historyEmpty">ימים עם ארוחות או אימונים שמורים יופיעו כאן.</p>
+  <section class="balance" id="historySummary" aria-label="סיכום קלוריות ליום שנבחר" hidden>
+    <dl class="totals">
+      <div><dt>יעד יומי</dt><dd id="historyTarget" dir="ltr">—</dd></div>
+      <div><dt>נאכלו</dt><dd id="historyEaten" dir="ltr">—</dd></div>
+      <div><dt>מאימונים</dt><dd id="historyWorkout" dir="ltr">—</dd></div>
+      <div><dt id="historyBalanceLabel">יתרה לסוף היום</dt><dd id="historyBalance" dir="ltr">—</dd></div>
+    </dl>
+    <p id="historyNote" hidden>לא נשמר יעד לאותו יום. היתרה מחושבת לפי היעד הנוכחי.</p>
+  </section>
+  <p class="hint" id="historyNoMeals" hidden>אין ארוחות רשומות ביום הזה.</p>
   <ul id="historyList"></ul>
 </dialog>
 <dialog id="foodDialog"><div class="dialog-head"><h2 id="foodTitle">הוספת ארוחה</h2><button class="close" data-close="foodDialog" aria-label="סגירה">×</button></div>
