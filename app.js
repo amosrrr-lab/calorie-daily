@@ -174,7 +174,7 @@ function render() {
 function renderMiscEntries(list, day, editable = false) {
   list.replaceChildren(...[...(day?.miscEntries ?? [])].reverse().map((entry) => {
     const row = element('li', '')
-    row.append(element('strong', fmt(entry.kcal) + ' קלוריות', 'entry'))
+    row.append(element('strong', [entry.description, fmt(entry.kcal) + ' קלוריות'].filter(Boolean).join(' · '), 'entry'))
     if (editable) {
       row.append(button('עריכה', 'quiet', () => openMisc(entry)), button('מחיקה', 'remove', () => {
         if (!confirm('למחוק את הרישום משונות?')) return
@@ -188,16 +188,31 @@ function renderMiscEntries(list, day, editable = false) {
 }
 function openMisc(entry) {
   editingMisc = entry ? {id:entry.id, date:dayKey()} : null
-  $('miscTitle').textContent = entry ? 'עריכת שונות' : 'הוספת קלוריות לשונות'
-  $('miscCalories').value = entry?.kcal ?? ''
+  $('miscTitle').textContent = entry ? 'עריכת שונות' : 'שונות'
+  const input = $('miscEntry')
+  input.setCustomValidity('')
+  input.value = entry ? [entry.description, entry.kcal].filter(Boolean).join(' ') : ''
   $('miscDialog').showModal()
-  $('miscCalories').focus()
+  input.focus()
+}
+function parseMiscEntry(text) {
+  const match = text.trim().match(/^(?:(.*?)\s+)?(\d+(?:[.,]\d+)?)(?:\s*(?:קלוריות|קלוריה|קל['׳’]?|קק["״]ל))?$/u)
+  if (!match) return null
+  const [, description = '', amount] = match
+  const kcal = Number(amount.replace(',', '.'))
+  return Number.isFinite(kcal) && kcal >= 0.01 ? {description:description.trim(), kcal} : null
 }
 $('miscButton').addEventListener('click', () => openMisc())
+$('miscEntry').addEventListener('input', (event) => event.currentTarget.setCustomValidity(''))
 $('miscForm').addEventListener('submit', (event) => {
   event.preventDefault()
-  const kcal = $('miscCalories').valueAsNumber
-  if (!Number.isFinite(kcal) || kcal < 0.01) return
+  const input = $('miscEntry')
+  const details = parseMiscEntry(input.value)
+  if (!details) {
+    input.setCustomValidity('יש לסיים את הרישום במספר הקלוריות, למשל ביס מפיצה 20 קל׳')
+    input.reportValidity()
+    return
+  }
   if (editingMisc) {
     const entry = state.days[editingMisc.date]?.miscEntries?.find((item) => item.id === editingMisc.id)
     if (!entry) {
@@ -205,11 +220,11 @@ $('miscForm').addEventListener('submit', (event) => {
       notify('הרישום כבר אינו ביומן')
       return
     }
-    entry.kcal = kcal
+    Object.assign(entry, details)
   } else {
     const day = today()
     day.miscEntries ??= []
-    day.miscEntries.push({id:crypto.randomUUID(), kcal})
+    day.miscEntries.push({id:crypto.randomUUID(), ...details})
   }
   persist()
   render()
