@@ -26,10 +26,6 @@ const acceptsAddedSugar = (id) => hotDrinks.has(id) || sweetenedHotDrinks.has(id
 const sugarKcalPerTeaspoon = 387 * 4 / 100 // White sugar in the catalog, 4 g per level teaspoon.
 const storageKey = 'calories-per-day.v1'
 let state = {target: null, weight: null, source: 'manual', origin: '', days: {}, customFoods:[], externalFoods:[]}
-try {
-  const saved = JSON.parse(localStorage.getItem(storageKey))
-  if (saved && saved.days && typeof saved.days === 'object') state = {...state, ...saved}
-} catch { /* The journal starts empty when local storage is unavailable. */ }
 function dayKey() {
   const date = new Date()
   return [date.getFullYear(), date.getMonth() + 1, date.getDate()].join('-')
@@ -67,12 +63,34 @@ function activityCalories(activity) {
 }
 const itemCalories = (item) => item.grams * item.kcal / 100 + (item.sugarTeaspoons ?? 0) * sugarKcalPerTeaspoon
 const mealCalories = (meal) => meal.items.reduce((sum, item) => sum + itemCalories(item), 0)
+function loadJournal() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey))
+    if (!saved?.days || typeof saved.days !== 'object') return
+
+    for (const day of Object.values(saved.days)) {
+      if (!day?.meals?.some((meal) => meal.items.some((item) => item.kind === 'misc'))) continue
+      day.miscEntries ??= []
+      day.meals = day.meals.map((meal) => {
+        const items = meal.items.filter((item, index) => {
+          if (item.kind !== 'misc') return true
+          day.miscEntries.push({id:meal.id + '-misc-' + index, kcal:itemCalories(item)})
+          return false
+        })
+        return {...meal, items}
+      }).filter((meal) => meal.items.length)
+    }
+    state = {...state, ...saved}
+  } catch { /* Retain the in-memory journal. */ }
+}
+loadJournal()
 function hasJournalData(day) {
-  return Boolean(day?.meals?.length) || activityCalories(day?.activity) !== null
+  return Boolean(day?.meals?.length || day?.miscEntries?.length) || activityCalories(day?.activity) !== null
 }
 
 function summarizeDay(day, target) {
-  const eaten = (day.meals ?? []).reduce((sum, meal) => sum + mealCalories(meal), 0)
+  const miscCalories = (day.miscEntries ?? []).reduce((sum, entry) => sum + entry.kcal, 0)
+  const eaten = (day.meals ?? []).reduce((sum, meal) => sum + mealCalories(meal), miscCalories)
   const workoutCalories = activityCalories(day.activity)
   const active = Math.round(workoutCalories ?? 0)
   const available = (target ?? 0) + active
@@ -83,6 +101,7 @@ let toastTimer
 let currentFood
 let draft = []
 let editingMeal
+let editingMisc
 let editingItem = null
 const foods = [...foodRows, ...soupRows].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
   id, name:hotDrinks.get(id)?.[0] ?? name, kcal,
@@ -135,6 +154,7 @@ function render() {
     ? [activity.name, fmt(active) + (hasTarget ? ' קלוריות מאימונים נוספו ליתרה' : ' קלוריות מאימונים נקלטו היום')].filter(Boolean).join(' · ')
     : 'טרם נקלטו קלוריות מאימון להיום'
   $('activityButton').textContent = state.origin ? 'מקור האימונים' : 'חיבור אימונים'
+  renderMiscEntries($('miscList'), day, true)
   $('mealCount').textContent = day.meals.length ? day.meals.length + (day.meals.length === 1 ? ' ארוחה' : ' ארוחות') : ''
   $('emptyJournal').hidden = day.meals.length > 0
   $('journal').replaceChildren(...[...day.meals].reverse().map((meal) => {
@@ -151,8 +171,52 @@ function render() {
     return row
   }))
 }
+function renderMiscEntries(list, day, editable = false) {
+  list.replaceChildren(...[...(day?.miscEntries ?? [])].reverse().map((entry) => {
+    const row = element('li', '')
+    row.append(element('strong', fmt(entry.kcal) + ' קלוריות', 'entry'))
+    if (editable) {
+      row.append(button('עריכה', 'quiet', () => openMisc(entry)), button('מחיקה', 'remove', () => {
+        if (!confirm('למחוק את הרישום משונות?')) return
+        day.miscEntries = day.miscEntries.filter((item) => item.id !== entry.id)
+        persist()
+        render()
+      }))
+    }
+    return row
+  }))
+}
+function openMisc(entry) {
+  editingMisc = entry ? {id:entry.id, date:dayKey()} : null
+  $('miscTitle').textContent = entry ? 'עריכת שונות' : 'הוספת קלוריות לשונות'
+  $('miscCalories').value = entry?.kcal ?? ''
+  $('miscDialog').showModal()
+  $('miscCalories').focus()
+}
+$('miscButton').addEventListener('click', () => openMisc())
+$('miscForm').addEventListener('submit', (event) => {
+  event.preventDefault()
+  const kcal = $('miscCalories').valueAsNumber
+  if (!Number.isFinite(kcal) || kcal < 0.01) return
+  if (editingMisc) {
+    const entry = state.days[editingMisc.date]?.miscEntries?.find((item) => item.id === editingMisc.id)
+    if (!entry) {
+      $('miscDialog').close()
+      notify('הרישום כבר אינו ביומן')
+      return
+    }
+    entry.kcal = kcal
+  } else {
+    const day = today()
+    day.miscEntries ??= []
+    day.miscEntries.push({id:crypto.randomUUID(), kcal})
+  }
+  persist()
+  render()
+  $('miscDialog').close()
+  notify('הקלוריות נשמרו בשונות')
+})
 function formatQuantity(item) {
-  if (item.kind === 'misc') return ''
   const quantity = item.grams + (item.unit === 'ml' ? ' מ״ל' : ' גרם')
   return item.sugarTeaspoons ? quantity + ' · ' + item.sugarTeaspoons + ' כפ׳ סוכר' : quantity
 }
@@ -190,7 +254,6 @@ function updateSearch() {
 }
 function selectFood(food, quantity) {
   currentFood = food
-  $('miscButton').hidden = $('miscPortion').hidden = $('miscCalories').disabled = true
   $('grams').disabled = false
   $('selectedFood').textContent = food.name
   $('drinkSugar').hidden = !acceptsAddedSugar(food.id)
@@ -217,24 +280,8 @@ function selectFood(food, quantity) {
   clearCatalog()
   $('saveMeal').disabled = false
 }
-function selectMisc(calories = '') {
-  clearSelection()
-  currentFood = {id:'misc-calories', name:'שונות', kind:'misc'}
-  $('miscButton').hidden = true
-  $('miscPortion').hidden = $('miscCalories').disabled = false
-  $('miscCalories').value = calories
-  $('addItem').hidden = $('saveMeal').disabled = false
-  $('addItem').textContent = editingItem === null ? 'הוספת רכיב' : 'עדכון רכיב'
-  $('foodSearch').value = ''
-  $('searchResults').replaceChildren()
-  clearCatalog()
-  $('miscCalories').focus()
-}
 function clearSelection() {
   currentFood = undefined
-  $('miscButton').hidden = false
-  $('miscPortion').hidden = $('miscCalories').disabled = true
-  $('miscCalories').value = ''
   $('grams').disabled = true
   $('grams').value = 100
   $('sugarTeaspoons').disabled = true
@@ -267,12 +314,11 @@ function renderDraft() {
     actions.append(button('עריכה', 'quiet', () => {
       const itemIndex = draft.indexOf(item)
       if (editingItem === itemIndex) {
-        $(item.kind === 'misc' ? 'miscCalories' : 'grams').focus()
+        $('grams').focus()
         return
       }
       if (!addSelected()) return
       editingItem = itemIndex
-      if (item.kind === 'misc') { selectMisc(item.kcal); return }
       const catalogFood = foods.find((food) => food.id === item.id)
       selectFood({...catalogFood, ...item, portions:catalogFood?.portions ?? []}, item.grams)
       $('grams').focus()
@@ -307,7 +353,7 @@ function openFood(withPhoto, meal) {
 }
 function addSelected() {
   if (!currentFood) return true
-  const item = currentFood.kind === 'misc' ? readMiscItem() : readFoodItem()
+  const item = readFoodItem()
   if (!item) return false
   if (editingItem === null) draft.push(item)
   else draft[editingItem] = item
@@ -315,12 +361,6 @@ function addSelected() {
   clearSelection()
   renderDraft()
   return true
-}
-function readMiscItem() {
-  const input = $('miscCalories')
-  if (!input.reportValidity() || !Number.isFinite(input.valueAsNumber)) return
-  // Preserve the journal's kcal-per-100 representation for older versions.
-  return {...currentFood, kcal:input.valueAsNumber, grams:100, unit:'g'}
 }
 function readFoodItem() {
   if (!$('grams').reportValidity()) return
@@ -351,11 +391,6 @@ $('cameraButton').addEventListener('click', () => choosePhoto(true))
 $('galleryButton').addEventListener('click', () => choosePhoto(false))
 $('manualButton').addEventListener('click', () => openFood(false))
 $('foodSearch').addEventListener('input', updateSearch)
-$('miscButton').addEventListener('click', () => selectMisc())
-$('replaceMisc').addEventListener('click', () => {
-  clearSelection()
-  searchForFood()
-})
 $('replaceFood').addEventListener('click', () => {
   clearSelection()
   searchForFood()
@@ -723,6 +758,8 @@ function renderHistory() {
   const day = state.days[$('historyDate').value]
   $('historySummary').hidden = !day
   const meals = day?.meals ?? []
+  $('historyMisc').hidden = !day?.miscEntries?.length
+  renderMiscEntries($('historyMiscList'), day)
   $('historyNoMeals').hidden = !day || meals.length > 0
   if (day) {
     const historicalTarget = day.target !== undefined
@@ -916,10 +953,7 @@ if (!bridge) connectWebActivity({
   journalKey: storageKey,
   currentSource: () => state.origin,
   refreshJournal: () => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(storageKey))
-      if (saved?.days && typeof saved.days === 'object') state = {...state, ...saved}
-    } catch { /* Retain the in-memory journal. */ }
+    loadJournal()
     render()
   },
   save: ({source, workoutKcal}) => {
