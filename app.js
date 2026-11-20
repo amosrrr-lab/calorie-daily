@@ -141,7 +141,7 @@ function render() {
     const row = element('li', '')
     const content = element('div', '', 'entry')
     content.append(element('strong', meal.items.map((item) => item.name).join(' · ')))
-    content.append(element('p', fmt(mealCalories(meal)) + ' קלוריות · ' + meal.items.map(formatQuantity).join(' + ')))
+    content.append(element('p', [fmt(mealCalories(meal)) + ' קלוריות', meal.items.map(formatQuantity).filter(Boolean).join(' + ')].filter(Boolean).join(' · ')))
     row.append(content, button('עריכה', 'quiet', () => openFood(false, meal)), button('מחיקה', 'remove', () => {
       if (!confirm('למחוק את הארוחה מהיומן?')) return
       day.meals = day.meals.filter((entry) => entry.id !== meal.id)
@@ -152,6 +152,7 @@ function render() {
   }))
 }
 function formatQuantity(item) {
+  if (item.kind === 'misc') return ''
   const quantity = item.grams + (item.unit === 'ml' ? ' מ״ל' : ' גרם')
   return item.sugarTeaspoons ? quantity + ' · ' + item.sugarTeaspoons + ' כפ׳ סוכר' : quantity
 }
@@ -189,6 +190,8 @@ function updateSearch() {
 }
 function selectFood(food, quantity) {
   currentFood = food
+  $('miscButton').hidden = $('miscPortion').hidden = $('miscCalories').disabled = true
+  $('grams').disabled = false
   $('selectedFood').textContent = food.name
   $('drinkSugar').hidden = !acceptsAddedSugar(food.id)
   $('sugarTeaspoons').disabled = $('drinkSugar').hidden
@@ -214,8 +217,25 @@ function selectFood(food, quantity) {
   clearCatalog()
   $('saveMeal').disabled = false
 }
+function selectMisc(calories = '') {
+  clearSelection()
+  currentFood = {id:'misc-calories', name:'שונות', kind:'misc'}
+  $('miscButton').hidden = true
+  $('miscPortion').hidden = $('miscCalories').disabled = false
+  $('miscCalories').value = calories
+  $('addItem').hidden = $('saveMeal').disabled = false
+  $('addItem').textContent = editingItem === null ? 'הוספת רכיב' : 'עדכון רכיב'
+  $('foodSearch').value = ''
+  $('searchResults').replaceChildren()
+  clearCatalog()
+  $('miscCalories').focus()
+}
 function clearSelection() {
   currentFood = undefined
+  $('miscButton').hidden = false
+  $('miscPortion').hidden = $('miscCalories').disabled = true
+  $('miscCalories').value = ''
+  $('grams').disabled = true
   $('grams').value = 100
   $('sugarTeaspoons').disabled = true
   $('sugarTeaspoons').value = ''
@@ -242,13 +262,17 @@ function resetPhoto() {
 function renderDraft() {
   $('draftList').replaceChildren(...draft.map((item, index) => {
     const row = element('li', '')
-    row.append(element('span', item.name + ' · ' + formatQuantity(item) + ' · ' + fmt(itemCalories(item)) + ' קלוריות'))
+    row.append(element('span', [item.name, formatQuantity(item), fmt(itemCalories(item)) + ' קלוריות'].filter(Boolean).join(' · ')))
     const actions = element('div', '')
     actions.append(button('עריכה', 'quiet', () => {
       const itemIndex = draft.indexOf(item)
-      if (editingItem === itemIndex) { $('grams').focus(); return }
+      if (editingItem === itemIndex) {
+        $(item.kind === 'misc' ? 'miscCalories' : 'grams').focus()
+        return
+      }
       if (!addSelected()) return
       editingItem = itemIndex
+      if (item.kind === 'misc') { selectMisc(item.kcal); return }
       const catalogFood = foods.find((food) => food.id === item.id)
       selectFood({...catalogFood, ...item, portions:catalogFood?.portions ?? []}, item.grams)
       $('grams').focus()
@@ -283,9 +307,25 @@ function openFood(withPhoto, meal) {
 }
 function addSelected() {
   if (!currentFood) return true
-  if (!$('grams').reportValidity()) return false
+  const item = currentFood.kind === 'misc' ? readMiscItem() : readFoodItem()
+  if (!item) return false
+  if (editingItem === null) draft.push(item)
+  else draft[editingItem] = item
+  editingItem = null
+  clearSelection()
+  renderDraft()
+  return true
+}
+function readMiscItem() {
+  const input = $('miscCalories')
+  if (!input.reportValidity() || !Number.isFinite(input.valueAsNumber)) return
+  // Preserve the journal's kcal-per-100 representation for older versions.
+  return {...currentFood, kcal:input.valueAsNumber, grams:100, unit:'g'}
+}
+function readFoodItem() {
+  if (!$('grams').reportValidity()) return
   const {id, name, kcal} = currentFood
-  if (!$('quantityUnit').reportValidity() || !$('sugarTeaspoons').reportValidity()) return false
+  if (!$('quantityUnit').reportValidity() || !$('sugarTeaspoons').reportValidity()) return
   const sugarTeaspoons = acceptsAddedSugar(id) ? Number($('sugarTeaspoons').value) : 0
   const unit = $('quantityUnit').value || currentFood.unit || 'g'
   if (currentFood.source === 'Open Food Facts') {
@@ -296,12 +336,7 @@ function addSelected() {
   }
   const item = {id, name, kcal, grams:Number($('grams').value), unit}
   if (sugarTeaspoons > 0) item.sugarTeaspoons = sugarTeaspoons
-  if (editingItem === null) draft.push(item)
-  else draft[editingItem] = item
-  editingItem = null
-  clearSelection()
-  renderDraft()
-  return true
+  return item
 }
 function choosePhoto(camera) {
   $('photoStatus').textContent = ''
@@ -316,6 +351,11 @@ $('cameraButton').addEventListener('click', () => choosePhoto(true))
 $('galleryButton').addEventListener('click', () => choosePhoto(false))
 $('manualButton').addEventListener('click', () => openFood(false))
 $('foodSearch').addEventListener('input', updateSearch)
+$('miscButton').addEventListener('click', () => selectMisc())
+$('replaceMisc').addEventListener('click', () => {
+  clearSelection()
+  searchForFood()
+})
 $('replaceFood').addEventListener('click', () => {
   clearSelection()
   searchForFood()
@@ -699,7 +739,7 @@ function renderHistory() {
     const row = element('li', '')
     const content = element('div', '', 'entry')
     content.append(element('strong', meal.items.map((item) => item.name).join(' · ')))
-    content.append(element('p', fmt(mealCalories(meal)) + ' קלוריות · ' + meal.items.map(formatQuantity).join(' + ')))
+    content.append(element('p', [fmt(mealCalories(meal)) + ' קלוריות', meal.items.map(formatQuantity).filter(Boolean).join(' + ')].filter(Boolean).join(' · ')))
     row.append(content)
     return row
   }))
