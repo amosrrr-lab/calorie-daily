@@ -271,7 +271,7 @@ function updateSearch() {
     return row
   }) : [element('p', 'אין תוצאות. אפשר לנסות שם כללי יותר.', 'hint')]))
 }
-function selectFood(food, quantity) {
+function selectFood(food, savedItem) {
   currentFood = food
   $('grams').disabled = false
   $('selectedFood').textContent = food.name
@@ -282,16 +282,27 @@ function selectFood(food, quantity) {
   $('quantityUnit').hidden = $('quantityUnitLabel').hidden = !online
   $('quantityUnit').required = online
   $('quantityUnit').value = food.unit ?? (online ? '' : 'g')
-  updateQuantity()
   if (online && !foods.some((item) => item.id === food.id)) {
     foods.push({...food, search:normalize(food.name)})
     state.externalFoods ??= []
     state.externalFoods.push(food)
     persist()
   }
-  $('grams').value = quantity ?? ($('photoTools').hidden ? 100 : '')
-  $('serving').replaceChildren(new Option('כמות בגרמים', ''), ...food.portions.map(([name, grams]) => new Option(name + ' (' + grams + ' ג׳)', grams)))
-  $('serving').hidden = $('servingLabel').hidden = food.portions.length === 0
+  const servingOptions = food.portions
+    .filter(([, grams]) => Number.isFinite(grams) && grams > 0)
+    .map(([name, grams], index) => {
+      const option = new Option(name + ' (' + grams + ' ג׳)', String(index))
+      option.dataset.name = name
+      option.dataset.grams = grams
+      return option
+    })
+  $('serving').replaceChildren(new Option('גרם', ''), ...servingOptions)
+  const savedOption = servingOptions.find((option) =>
+    option.dataset.name === savedItem?.serving?.name &&
+    Number(option.dataset.grams) === savedItem.serving.grams)
+  $('serving').value = savedOption?.value ?? ''
+  $('grams').value = savedOption ? savedItem.serving.count : savedItem?.grams ?? ($('photoTools').hidden ? 100 : '')
+  updateQuantity()
   $('portion').hidden = $('addItem').hidden = false
   $('addItem').textContent = editingItem === null ? 'הוספת רכיב' : 'עדכון רכיב'
   $('foodSearch').value = ''
@@ -339,7 +350,7 @@ function renderDraft() {
       if (!addSelected()) return
       editingItem = itemIndex
       const catalogFood = foods.find((food) => food.id === item.id)
-      selectFood({...catalogFood, ...item, portions:catalogFood?.portions ?? []}, item.grams)
+      selectFood({...catalogFood, ...item, portions:catalogFood?.portions ?? []}, item)
       $('grams').focus()
     }), button('הסרה', 'remove', () => {
       if (editingItem === index) {
@@ -382,6 +393,7 @@ function addSelected() {
   return true
 }
 function readFoodItem() {
+  updateQuantity()
   if (!$('grams').reportValidity()) return
   const {id, name, kcal} = currentFood
   if (!$('quantityUnit').reportValidity() || !$('sugarTeaspoons').reportValidity()) return
@@ -393,7 +405,11 @@ function readFoodItem() {
     const available = foods.find((food) => food.id === id)
     if (available) available.unit = unit
   }
-  const item = {id, name, kcal, grams:Number($('grams').value), unit}
+  const serving = selectedServing()
+  const count = Number($('grams').value)
+  const grams = serving ? Number((serving.grams * count).toFixed(6)) : count
+  const item = {id, name, kcal, grams, unit}
+  if (serving) item.serving = {...serving, count}
   if (sugarTeaspoons > 0) item.sugarTeaspoons = sugarTeaspoons
   return item
 }
@@ -416,9 +432,11 @@ $('replaceFood').addEventListener('click', () => {
 })
 $('otherPhotoFood').addEventListener('click', () => searchForFood())
 $('serving').addEventListener('change', () => {
-  if ($('serving').value) $('grams').value = $('serving').value
+  $('grams').value = selectedServing() ? 1 : 100
+  updateQuantity()
 })
-$('grams').addEventListener('input', () => { $('serving').value = '' })
+$('grams').addEventListener('input', updateQuantity)
+$('sugarTeaspoons').addEventListener('input', updateQuantity)
 $('addItem').addEventListener('click', () => { if (addSelected()) searchForFood() })
 $('foodDialog').addEventListener('close', () => { resetPhoto(); clearCatalog() })
 $('quantityUnit').addEventListener('change', updateQuantity)
@@ -456,12 +474,35 @@ $('customProductForm').addEventListener('submit', (event) => {
   selectFood(searchable)
   notify('המוצר נשמר לחיפושים הבאים')
 })
+function selectedServing() {
+  const option = $('serving').selectedOptions[0]
+  if (option?.dataset.grams) return {name:option.dataset.name, grams:Number(option.dataset.grams)}
+}
 function updateQuantity() {
   if (!currentFood) return
   const unit = $('quantityUnit').value || currentFood.unit
   const label = unit === 'ml' ? 'מ״ל' : unit === 'g' ? 'גרם' : 'גרם או מ״ל לפי האריזה'
   $('per100').textContent = fmt(currentFood.kcal) + ' קלוריות ל־100 ' + label
-  $('quantityLabel').textContent = unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות'
+
+  const servingSelect = $('serving')
+  const showServings = unit === 'g' && servingSelect.options.length > 1
+  servingSelect.hidden = $('servingLabel').hidden = !showServings
+  if (!showServings) servingSelect.value = ''
+  const serving = selectedServing()
+  $('quantityLabel').textContent = serving
+    ? 'כמה אכלת לפי המידה שנבחרה?'
+    : unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות'
+
+  const input = $('grams')
+  const count = input.valueAsNumber
+  const grams = serving ? serving.grams * count : count
+  input.setCustomValidity(grams > 3000 ? 'הכמות הכוללת לא יכולה לעלות על 3,000 ' + label : '')
+  const sugar = $('sugarTeaspoons')
+  const sugarTeaspoons = sugar.disabled ? 0 : Number(sugar.value)
+  $('quantitySummary').textContent = unit && input.validity.valid && sugar.validity.valid
+    ? (serving ? new Intl.NumberFormat('he-IL', {maximumFractionDigits:3}).format(grams) + ' גרם · ' : '') +
+      fmt(itemCalories({grams, kcal:currentFood.kcal, sugarTeaspoons})) + ' קלוריות'
+    : ''
 }
 function clearCatalog() {
   clearTimeout(catalogTimer)
