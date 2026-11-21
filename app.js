@@ -107,7 +107,11 @@ let editingItem = null
 const cookedChickenWithOlives = ['chicken-olive-stew', 'חלקי עוף מבושל עם זיתים מבושלים', 200, [],
   'תבשיל עוף זיתים ירוקים עוף וזיתים עוף מבושל בזיתים כרעיים שוקיים ירכיים פרגית',
   'הערכה לתבשיל ביתי']
-const foods = [...foodRows, ...soupRows, cookedChickenWithOlives].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
+// Estimate includes a small amount of the cooking sauce.
+const cookedMeatballsWithGreens = ['meatballs-oil-greens', 'קציצות מבושלות עם שמן ועלים', 200,
+  [['קציצה בינונית', 65]], 'קציצה קציצות בשר קציצה מבושלת קציצות ברוטב עלים ירוקים עשבי תיבול פטרוזיליה כוסברה סלרי',
+  'הערכה לתבשיל ביתי']
+const foods = [...foodRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
   id, name:hotDrinks.get(id)?.[0] ?? name, kcal,
   portions:id === 4803 ? [['אספרסו קצר', 30], ['אספרסו כפול', 60], ['כוס קפה שחור', 130]] : portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
