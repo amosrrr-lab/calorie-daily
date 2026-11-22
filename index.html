@@ -1,5 +1,5 @@
 <!doctype html><html lang="he" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css?v=voice-meals-1"><script type="module" src="app.js?v=voice-meals-1"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css?v=voice-meals-1"><script type="module" src="app.js?v=voice-estimate-1"></script></head>
 <body><div class="shell">
 <header class="app-header">
   <strong class="brand"><span class="brand-mark" aria-hidden="true"></span>קלוריות ביום</strong>
@@ -45,6 +45,8 @@
     <div class="row"><div><h2>אימוני היום</h2><p class="hint" id="activityStatus">טרם נקלטו קלוריות מאימון להיום</p></div><button class="quiet header-button" id="activityButton">חיבור אימונים</button></div>
   </section>
 </main><footer>היומן נשמר במכשיר הזה.<br><a href="privacy.html">פרטיות ומקורות המידע</a>
+<details id="appleInstallHelp" hidden><summary>הוספה למסך הבית באייפון</summary>
+<p class="hint">פתח ב־Safari, הקש על ״שיתוף״ ואז על ״הוסף למסך הבית״. אם מופיעה האפשרות ״פתיחה כיישום אינטרנט״, הפעל אותה והקש על ״הוסף״.</p></details>
 <div id="balanceWidgetSettings" hidden>
 <a id="showBalanceWidgetGuide" href="#balance-widget-guide">הצג יתרה במסך הנעילה</a>
 <p class="hint">שים לב להדרכת ההתקנה בדף הבא</p>
@@ -220,6 +222,7 @@
 <dialog id="activityDialog"><div class="dialog-head"><h2>חיבור שעון או אפליקציית כושר</h2><button class="close" data-close="activityDialog" aria-label="סגירה">×</button></div>
 <div id="nativeControls" hidden><div class="actions"><button id="phoneSource" class="primary">טלפון</button><button id="watchSource" class="secondary">שעון חכם</button></div><label id="originLabel" for="watchOrigin" hidden>אפליקציית השעון ב־Health Connect</label><select id="watchOrigin" hidden></select><div class="actions"><button type="button" id="openWatchApp" class="secondary">פתיחת אפליקציית השעון</button><button type="button" id="openHealthSettings" class="secondary">הגדרות Health Connect</button></div>
 <p id="nativeStatus" class="hint" role="status"></p><button id="refreshActivity" class="primary wide">הרשאה וסנכרון</button></div>
+<p class="hint" id="appleActivityHint" hidden>אפשר להזין קלוריות מאימון ידנית באייפון. סנכרון עם Apple Health עדיין אינו זמין.</p>
 <div id="webActivityHint" hidden>
 <label for="webActivitySource">איפה מתועדים האימונים שלך?</label>
 <select id="webActivitySource"><option value="zepp">Zepp · Amazfit</option><option value="samsung">Samsung Health</option></select>

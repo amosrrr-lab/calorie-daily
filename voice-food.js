@@ -26,20 +26,30 @@ export function parseVoiceFood(transcript) {
   if (/^לא(?:\s|$)/.test(text)) return {query:'', count:null, unit:null}
   const phrase = text.replace(/^(?:(?:אני )?אכלתי|(?:אני )?שתיתי|תוסיף(?: לי)?|תרשום(?: לי)?)\s+/, '')
     .replace(/^את\s+/, '').replace(/^(?:היום|עכשיו)\s+/, '')
-  const leading = phrase.match(prefix)
-  const trailing = !leading && phrase.match(suffix)
-  const measure = !leading && !trailing && phrase.match(singularMeasure)
+  const qualifier = phrase.match(/^(קצת|ביס(?: קטן)?(?=\s|$)(?:\s+מ(?:ה)?)?|פרוסה קטנה(?: של| מ| מה)?|חתיכה קטנה(?: של| מ| מה)?)\s*/u)
+  if (qualifier && phrase.length > qualifier[0].length) {
+    const kind = qualifier[1].startsWith('ביס') ? 'bite' : qualifier[1] === 'קצת' ? 'little' : 'small'
+    const parsed = parseVoiceFood(phrase.slice(qualifier[0].length))
+    return parsed.count === null ? {...parsed, kind} : parsed
+  }
+  const approximate = /^(?:בערך\s+|כ[-־]\s*|כ(?=\d))/u
+  const portion = phrase.replace(approximate, '')
+  const leading = portion.match(prefix)
+  const trailing = !leading && portion.match(suffix)
+  const measure = !leading && !trailing && portion.match(singularMeasure)
   const amount = leading?.[1] ?? trailing?.[2]
   const count = amount ? quantities.get(amount) ?? Number(amount.replace(',', '.')) : measure ? 1 : null
   const unit = measurements.get(leading?.[2] ?? trailing?.[3] ?? measure?.[1]) ?? null
-  const query = (leading?.[3] ?? trailing?.[1] ?? measure?.[2] ?? phrase).replace(/^של\s+/, '')
-  return {query, count, unit}
+  const query = (leading?.[3] ?? trailing?.[1] ?? measure?.[2] ?? portion).replace(/^של\s+/, '')
+  return approximate.test(phrase) ? {query, count, unit, approximate:true} : {query, count, unit}
 }
 
 const spokenAliases = new Map([
   [1564, ['ביצה קשה', 'ביצים קשות']],
   [2721, ['אורז לבן מבושל', 'אורז מבושל ללא שמן']],
   [3225, ['בננה', 'בננות']],
+  [2432, ['עוגיית תמרים', 'עוגיית תמרים מגולגלת', 'עוגיות תמרים מגולגלות']],
+  [3030, ['גחנון', 'ג חנון', 'גחנות', 'גחנונים', 'ג חנון אפוי']],
   ['meatballs-oil-greens', ['קציצה מבושלת עם שמן ועלים', 'קציצה עם שמן ועלים', 'קציצות עם שמן ועלים']]
 ])
 
@@ -86,12 +96,27 @@ const typicalVoiceIngredients = new Map([
   ['חמאה', {grams:5, portion:'כפית'}]
 ])
 
+// Editable estimates for common descriptions where the catalog has no matching measure.
+const smallVoicePortions = new Map([
+  [2432, {little:10, bite:8, small:18}],
+  [3030, {little:20, bite:10, small:15}],
+  [3223, {little:20, bite:10, small:10}],
+  [1646, {little:12}],
+  [1564, {little:20, bite:10}]
+])
+
 export function voiceIngredientDefault(food, spoken, normalize) {
   const explicit = resolveVoiceQuantity(food, spoken, normalize)
-  if (explicit) return {grams:explicit.grams, estimated:false}
+  if (explicit) return {...explicit, estimated:Boolean(spoken.approximate)}
+  if (spoken.kind) {
+    const amounts = smallVoicePortions.get(food.id)
+    const grams = amounts?.[spoken.kind]
+    const names = {little:'כמות קטנה', bite:'ביס', small:'חתיכה קטנה'}
+    return grams ? {grams, portion:names[spoken.kind], estimated:true} : {grams:''}
+  }
   const base = food.unit ?? (food.source === 'Open Food Facts' ? null : 'g')
   if ((spoken.unit === 'g' || spoken.unit === 'ml') && (!base || base === spoken.unit)) {
-    return {grams:spoken.count > 0 && spoken.count <= 3000 ? spoken.count : '', estimated:false, unit:spoken.unit}
+    return {grams:spoken.count > 0 && spoken.count <= 3000 ? spoken.count : '', estimated:Boolean(spoken.approximate), unit:spoken.unit}
   }
   const portions = food.portions.filter(([, grams]) => Number.isFinite(grams) && grams > 0 && grams < 3000)
   const typical = typicalVoiceIngredients.get(normalize(spoken.query))

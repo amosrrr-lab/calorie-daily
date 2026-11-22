@@ -1,12 +1,14 @@
 import foodRows from './foods-data.js'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
-import {parseVoiceFood, matchesVoiceFood, resolveVoiceQuantity, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-meals-1'
+import {parseVoiceFood, matchesVoiceFood, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-estimate-1'
 import {connectWebActivity} from './activity-sync.js?v=workout-setup-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
 const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
 const bridge = window.CalorieAndroid
+const appleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 let updateBalanceWidget = () => {}
 
 const hotDrinks = new Map([
@@ -166,7 +168,7 @@ function render() {
   $('activityStatus').textContent = workoutCalories !== null
     ? [activity.name, fmt(active) + (hasTarget ? ' קלוריות מאימונים נוספו ליתרה' : ' קלוריות מאימונים נקלטו היום')].filter(Boolean).join(' · ')
     : 'טרם נקלטו קלוריות מאימון להיום'
-  $('activityButton').textContent = state.origin ? 'מקור האימונים' : 'חיבור אימונים'
+  $('activityButton').textContent = appleMobile ? 'רישום אימון' : state.origin ? 'מקור האימונים' : 'חיבור אימונים'
   renderMiscEntries($('miscList'), day, true)
   $('mealCount').textContent = day.meals.length ? day.meals.length + (day.meals.length === 1 ? ' ארוחה' : ' ארוחות') : ''
   $('emptyJournal').hidden = day.meals.length > 0
@@ -278,6 +280,9 @@ function findFoodMatches(name, spoken) {
   }
   return matches.sort((a, b) => a.rank - b.rank || a.food.name.length - b.food.name.length || a.food.name.localeCompare(b.food.name, 'he'))
 }
+$('appleInstallHelp').hidden = !appleMobile || navigator.standalone === true
+  || window.matchMedia('(display-mode: standalone)').matches
+$('appleActivityHint').hidden = !appleMobile
 function foodSearchInput() {
   const field = $('foodSearch').value.trim()
   return voiceMode ? parseVoiceFood(field) : {query:field}
@@ -294,7 +299,7 @@ function updateSearch() {
   if (!normalize(spoken.query)) { clearCatalog(); results.replaceChildren(); return [] }
   const matches = findFoodMatches(spoken.query, voiceMode).slice(0, 18)
   queueCatalog(spoken.query, voiceMode && !matches.some(entry => entry.exact || entry.rank < 5))
-  $('voiceOnlineSingle').hidden = !voiceMode
+  $('voiceOnlineSingle').hidden = Boolean(bridge?.searchProducts)
   results.replaceChildren(...(matches.length ? matches.map(({food}) => {
     const row = button(food.name, 'secondary', () => {
       if (voiceMode) selectSpokenFood(food, spoken)
@@ -327,10 +332,16 @@ function selectSpokenFood(food, spoken) {
   releaseVoiceRecognition()?.abort()
   setVoiceControls(false)
   $('retryVoice').hidden = true
-  const quantity = resolveVoiceQuantity(food, spoken, normalize)
-  selectFood(food, quantity ?? {grams:''})
-  setVoiceStatus(quantity ? 'בדוק את המנה והכמות לפני השמירה.' : 'בחר יחידת מידה והזן את הכמות.')
-  return Boolean(quantity)
+  const quantity = voiceIngredientDefault(food, spoken, normalize)
+  selectFood(food, quantity)
+  if (quantity.unit && !$('quantityUnit').hidden) {
+    $('quantityUnit').value = quantity.unit
+    updateQuantity()
+  }
+  setVoiceStatus(quantity.estimated
+    ? 'כמות משוערת' + (quantity.portion ? ' · ' + quantity.portion : '') + '. אפשר לשנות לפני השמירה.'
+    : quantity.grams ? 'בדוק את המנה והכמות לפני השמירה.' : 'בחר יחידת מידה והזן את הכמות.')
+  return Boolean(quantity.grams) && !quantity.estimated
 }
 function startVoiceMeal() {
   openFood(false, undefined, false)
@@ -446,8 +457,11 @@ function processVoiceMeal(autoSave) {
   const spoken = foodSearchInput()
   const matches = updateSearch()
   const exact = matches.filter(entry => entry.exact)
-  if (exact.length === 1 && spoken.count !== null) {
-    if (selectSpokenFood(exact[0].food, spoken) && autoSave) {
+  const preferred = exact.length === 0
+    ? foods.find(food => food.id === preferredVoiceIngredient(spoken, normalize)) : undefined
+  const food = exact.length === 1 ? exact[0].food : preferred
+  if (food) {
+    if (selectSpokenFood(food, spoken) && exact.length === 1 && spoken.count !== null && autoSave) {
       voiceTranscript = transcript
       $('foodForm').requestSubmit()
     }
@@ -615,6 +629,7 @@ function selectFood(food, savedItem) {
   $('portion').hidden = $('addItem').hidden = false
   $('addItem').textContent = editingItem === null ? 'הוספת רכיב' : 'עדכון רכיב'
   $('foodSearch').value = ''
+  $('voiceOnlineSingle').hidden = true
   $('searchResults').replaceChildren()
   clearCatalog()
   $('saveMeal').disabled = false
@@ -866,10 +881,7 @@ function queueCatalog(query, webFallback = false) {
   clearTimeout(catalogTimer)
   catalogController?.abort()
   if (query.length < 2) { clearCatalog(); return }
-  if (!bridge?.searchProducts && !webFallback) {
-    $('catalogStatus').textContent = voiceMode ? '' : 'חיפוש מוצרים ומותגים מקוון זמין באפליקציית Android.'
-    return
-  }
+  if (!bridge?.searchProducts && !webFallback) { clearCatalog(); return }
   $('catalogStatus').textContent = 'מחפש גם בקטלוג המוצרים…'
   $('catalogResults').replaceChildren()
   $('catalogMore').hidden = true
