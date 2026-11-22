@@ -1,7 +1,7 @@
 import foodRows from './foods-data.js'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
-import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-list-1'
+import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-quantities-2'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
@@ -270,7 +270,7 @@ function searchRank(food, query) {
 function findFoodMatches(name, spoken) {
   const query = normalize(name).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
   if (!query) return []
-  const alternate = spoken && ({'הריסה':'אריסה', 'חריסה':'אריסה', 'סלק אדום':'סלק', 'טחינה מוכנה':'טחינה'})[query]
+  const alternate = spoken && ({'הריסה':'אריסה', 'הריסו':'אריסה', 'חריסה':'אריסה', 'סלק אדום':'סלק', 'טחינה מוכנה':'טחינה'})[query]
   const terms = (alternate || query).split(' ')
   const matches = []
   for (const food of foods) {
@@ -931,7 +931,9 @@ async function loadCatalog(query, page) {
     $('catalogMore').hidden = !result.next
   } catch (error) {
     if (controller.signal.aborted) return
-    $('catalogStatus').textContent = error.message || 'קטלוג המוצרים אינו זמין כרגע.'
+    $('catalogStatus').textContent = error instanceof TypeError || error.name === 'TimeoutError'
+      ? 'החיפוש באינטרנט לא זמין כרגע. אפשר לנסות שוב או לחפש כל רכיב במאגר.'
+      : error.message || 'קטלוג המוצרים אינו זמין כרגע.'
     $('catalogMore').hidden = true
   } finally {
     if (catalogController === controller) $('catalogMore').disabled = false

@@ -41,7 +41,8 @@ export function parseVoiceFood(transcript) {
   const count = amount ? quantities.get(amount) ?? Number(amount.replace(',', '.')) : measure ? 1 : null
   const unit = measurements.get(leading?.[2] ?? trailing?.[3] ?? measure?.[1]) ?? null
   const query = (leading?.[3] ?? trailing?.[1] ?? measure?.[2] ?? portion).replace(/^של\s+/, '')
-  return approximate.test(phrase) ? {query, count, unit, approximate:true} : {query, count, unit}
+  return {query, count, unit, ...(approximate.test(phrase) ? {approximate:true} : {}),
+    ...(trailing ? {quantityAfterFood:true} : {})}
 }
 
 const spokenAliases = new Map([
@@ -52,7 +53,7 @@ const spokenAliases = new Map([
   [9794, ['סלק', 'סלק אדום', 'סלק מבושל']],
   [8366, ['טחינה', 'טחינה מוכנה']],
   [1898, ['טחינה גולמית']],
-  [8372, ['אריסה', 'הריסה', 'חריסה', 'אריסה חריפה', 'הריסה חריפה', 'ממרח אריסה']],
+  [8372, ['אריסה', 'הריסה', 'הריסו', 'חריסה', 'אריסה חריפה', 'הריסה חריפה', 'ממרח אריסה']],
   ['manufacturer-agami-7290018296615', ['פיתה כוסמין', 'פיתה ביס כוסמין']],
   [2432, ['עוגיית תמרים', 'עוגיית תמרים מגולגלת', 'עוגיות תמרים מגולגלות']],
   [3030, ['גחנון', 'ג חנון', 'גחנות', 'גחנונים', 'ג חנון אפוי']],
@@ -92,18 +93,22 @@ function splitKnownFoods(phrase, isKnownFood) {
   const words = phrase.trim().split(/\s+/)
   // Keep long unrecognized dictation intact rather than guessing where names end.
   if (words.length > 32) return [whole]
-  const from = new Map([[words.length, []]])
+  const from = new Map([[words.length, {foods:[], suffixes:0}]])
   for (let start = words.length - 1; start >= 0; start--) {
-    for (const [end, tail] of [...from].sort(([a], [b]) => b - a)) {
-      if (end <= start) continue
+    if (words[start] === 'של') continue
+    for (let end = words.length; end > start; end--) {
+      const tail = from.get(end)
+      if (!tail) continue
       const food = parseVoiceFood(words.slice(start, end).join(' '))
-      if (food.query && isKnownFood(food.query)) {
-        from.set(start, [food, ...tail])
-        break
+      if (!food.query || !isKnownFood(food.query)) continue
+      const suffixes = tail.suffixes + Number(Boolean(food.quantityAfterFood))
+      // Prefer “two tablespoons of tahini” over attaching the quantity to the previous food.
+      if (!from.has(start) || suffixes < from.get(start).suffixes) {
+        from.set(start, {foods:[food, ...tail.foods], suffixes})
       }
     }
   }
-  return from.get(0) ?? [whole]
+  return from.get(0)?.foods ?? [whole]
 }
 
 export function parseVoiceMeal(transcript, isKnownFood = () => false) {
