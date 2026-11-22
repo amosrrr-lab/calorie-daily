@@ -1,6 +1,7 @@
 import foodRows from './foods-data.js'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js'
+import {parseVoiceFood, matchesVoiceFood, resolveVoiceQuantity} from './voice-food.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=workout-setup-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
 const $ = (id) => document.getElementById(id)
@@ -103,6 +104,8 @@ let draft = []
 let editingMeal
 let editingMisc
 let editingItem = null
+let voiceMode = false
+let voiceRecognition
 // Estimate per 100 g: 80 g stewed thigh meat, 15 g green olives, and 5 g sauce with about 2.5 g oil.
 const cookedChickenWithOlives = ['chicken-olive-stew', 'חלקי עוף מבושל עם זיתים מבושלים', 200, [],
   'תבשיל עוף זיתים ירוקים עוף וזיתים עוף מבושל בזיתים כרעיים שוקיים ירכיים פרגית',
@@ -257,23 +260,105 @@ function searchRank(food, query) {
   if (query === 'סלט' && [9704, 3895, 9418, 3898, 9383].includes(food.id)) return 1
   return food.search.startsWith(query) ? 2 : 3
 }
-function updateSearch() {
-  const query = normalize($('foodSearch').value).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
-  const results = $('searchResults')
-  queueCatalog($('foodSearch').value.trim())
-  if (!query) { results.replaceChildren(); return }
+function findFoodMatches(name, spoken) {
+  const query = normalize(name).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
+  if (!query) return []
   const terms = query.split(' ')
-  const matches = foods.filter((food) => query === 'משקאות חמים'
-    ? hotDrinks.has(food.id)
-    : terms.every((term) => food.search.includes(term)))
-    .map((food) => ({food, rank:searchRank(food, query)}))
-    .sort((a, b) => a.rank - b.rank || a.food.name.length - b.food.name.length || a.food.name.localeCompare(b.food.name, 'he'))
-    .slice(0, 18).map(({food}) => food)
-  results.replaceChildren(...(matches.length ? matches.map((food) => {
-    const row = button(food.name, 'secondary', () => selectFood(food))
+  const matches = []
+  for (const food of foods) {
+    const exact = spoken && matchesVoiceFood(food, query, normalize)
+    if (exact || (query === 'משקאות חמים'
+      ? hotDrinks.has(food.id)
+      : terms.every((term) => food.search.includes(term)))) {
+      matches.push({food, exact, rank:exact ? -1 : searchRank(food, query)})
+    }
+  }
+  return matches.sort((a, b) => a.rank - b.rank || a.food.name.length - b.food.name.length || a.food.name.localeCompare(b.food.name, 'he'))
+}
+function foodSearchInput() {
+  const field = $('foodSearch').value.trim()
+  return voiceMode ? parseVoiceFood(field) : {query:field}
+}
+function updateSearch() {
+  const spoken = foodSearchInput()
+  const results = $('searchResults')
+  queueCatalog(spoken.query)
+  if (!normalize(spoken.query)) { results.replaceChildren(); return [] }
+  const matches = findFoodMatches(spoken.query, voiceMode).slice(0, 18)
+  results.replaceChildren(...(matches.length ? matches.map(({food}) => {
+    const row = button(food.name, 'secondary', () => {
+      if (voiceMode) selectSpokenFood(food, spoken)
+      else selectFood(food)
+    })
     row.append(element('span', food.source + ' · ' + fmt(food.kcal) + (food.unit === 'ml' ? ' ל־100 מ״ל' : ' ל־100 ג׳')))
     return row
   }) : [element('p', 'אין תוצאות. אפשר לנסות שם כללי יותר.', 'hint')]))
+  return matches
+}
+function setVoiceStatus(message) {
+  const status = $('voiceFoodStatus')
+  status.textContent = message
+  status.hidden = !message
+}
+function selectSpokenFood(food, spoken) {
+  const quantity = resolveVoiceQuantity(food, spoken, normalize)
+  selectFood(food, quantity ?? {grams:''})
+  setVoiceStatus(quantity ? 'בדוק את המנה והכמות לפני השמירה.' : 'בחר יחידת מידה והזן את הכמות.')
+  return Boolean(quantity)
+}
+function startVoiceMeal() {
+  openFood(false, undefined, false)
+  $('foodTitle').textContent = 'רישום ארוחה בקול'
+  voiceMode = true
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!Recognition) {
+    setVoiceStatus('אפשר להכתיב בשדה החיפוש דרך המיקרופון במקלדת, למשל ״שתי ביצים קשות״.')
+    $('foodSearch').focus()
+    return
+  }
+  const recognizer = new Recognition()
+  voiceRecognition = recognizer
+  recognizer.lang = 'he-IL'
+  recognizer.interimResults = false
+  recognizer.maxAlternatives = 1
+  const active = () => voiceRecognition === recognizer && $('foodDialog').open
+  let finished = false
+  setVoiceStatus('מדברים עכשיו. למשל ״שתי ביצים קשות״ או ״150 גרם אורז לבן מבושל״.')
+  recognizer.onresult = (event) => {
+    if (!active() || finished) return
+    finished = true
+    const transcript = event.results[event.resultIndex]?.[0]?.transcript?.trim()
+    if (!transcript) { setVoiceStatus('לא נקלטה מנה. אפשר להקליד או להכתיב בשדה החיפוש.'); return }
+    if ($('foodSearch').value.trim()) return
+    $('foodSearch').value = transcript
+    const spoken = foodSearchInput()
+    const matches = updateSearch()
+    const exact = matches.filter((entry) => entry.exact)
+    if (exact.length === 1 && spoken.count !== null && selectSpokenFood(exact[0].food, spoken)) {
+      $('foodForm').requestSubmit()
+      return
+    }
+    if (exact.length === 1 && spoken.count !== null) return
+    setVoiceStatus(matches.length
+      ? 'בחר את המנה שהתכוונת אליה ובדוק את הכמות.'
+      : 'לא נמצאה מנה מתאימה. אפשר לערוך את הטקסט ולחפש שוב.')
+  }
+  recognizer.onerror = () => {
+    if (!active() || finished) return
+    finished = true
+    setVoiceStatus('הדיבור לא נקלט. אפשר להקליד או להשתמש במיקרופון של המקלדת.')
+  }
+  recognizer.onend = () => {
+    if (!active()) return
+    voiceRecognition = undefined
+    if (!finished) setVoiceStatus('לא נקלטה מנה. אפשר להקליד או להכתיב בשדה החיפוש.')
+  }
+  try {
+    recognizer.start()
+  } catch {
+    voiceRecognition = undefined
+    setVoiceStatus('לא ניתן להפעיל דיבור. אפשר להקליד או להשתמש במיקרופון של המקלדת.')
+  }
 }
 function selectFood(food, savedItem) {
   currentFood = food
@@ -371,7 +456,9 @@ function renderDraft() {
   }))
   $('saveMeal').disabled = !draft.length && !currentFood
 }
-function openFood(withPhoto, meal) {
+function openFood(withPhoto, meal, focusSearch = true) {
+  voiceMode = false
+  setVoiceStatus('')
   draft = meal ? meal.items.map((item) => ({...item})) : []
   editingMeal = meal?.id
   editingItem = null
@@ -383,7 +470,7 @@ function openFood(withPhoto, meal) {
   updateSearch()
   renderDraft()
   $('foodDialog').showModal()
-  if (!withPhoto && !meal) $('foodSearch').focus()
+  if (focusSearch && !withPhoto && !meal) $('foodSearch').focus()
 }
 function addSelected() {
   if (!currentFood) return true
@@ -429,6 +516,7 @@ $('photoButton').addEventListener('click', () => {
 $('cameraButton').addEventListener('click', () => choosePhoto(true))
 $('galleryButton').addEventListener('click', () => choosePhoto(false))
 $('manualButton').addEventListener('click', () => openFood(false))
+$('voiceMealButton').addEventListener('click', startVoiceMeal)
 $('foodSearch').addEventListener('input', updateSearch)
 $('replaceFood').addEventListener('click', () => {
   clearSelection()
@@ -442,13 +530,20 @@ $('serving').addEventListener('change', () => {
 $('grams').addEventListener('input', updateQuantity)
 $('sugarTeaspoons').addEventListener('input', updateQuantity)
 $('addItem').addEventListener('click', () => { if (addSelected()) searchForFood() })
-$('foodDialog').addEventListener('close', () => { resetPhoto(); clearCatalog() })
+$('foodDialog').addEventListener('close', () => {
+  const recognizer = voiceRecognition
+  voiceRecognition = undefined
+  recognizer?.abort()
+  voiceMode = false
+  resetPhoto()
+  clearCatalog()
+})
 $('quantityUnit').addEventListener('change', updateQuantity)
 $('foodSearch').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault()
     clearTimeout(catalogTimer)
-    loadCatalog($('foodSearch').value.trim(), 1)
+    loadCatalog(foodSearchInput().query, 1)
   }
 })
 $('catalogMore').addEventListener('click', () => loadCatalog(catalogQuery, catalogPage + 1))
@@ -547,7 +642,10 @@ async function loadCatalog(query, page) {
     const ids = new Set(catalogItems.map((food) => food.id))
     catalogItems.push(...result.products.filter((food) => !ids.has(food.id)))
     $('catalogResults').replaceChildren(...catalogItems.map((food) => {
-      const row = button(food.name, 'secondary', () => selectFood(food))
+      const row = button(food.name, 'secondary', () => {
+        if (voiceMode) selectSpokenFood(food, foodSearchInput())
+        else selectFood(food)
+      })
       row.append(element('span', fmt(food.kcal) + ' ל־100 לפי האריזה'))
       return row
     }))
@@ -576,7 +674,7 @@ $('foodForm').addEventListener('submit', (event) => {
   persist()
   render()
   $('foodDialog').close()
-  notify('הארוחה נשמרה')
+  notify(voiceMode ? 'נוספו ליומן ' + fmt(mealCalories({items:draft})) + ' קלוריות' : 'הארוחה נשמרה')
 })
 const goalSteps = ['goalIntro', 'goalHeightStep', 'goalWeightStep', 'goalAgeStep',
   'goalPurpose', 'goalActivityStep', 'goalRoutine', 'goalReview']
