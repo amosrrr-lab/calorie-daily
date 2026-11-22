@@ -2,7 +2,8 @@ import foodRows from './foods-data.js'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
 import {parseVoiceFood, matchesVoiceFood, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-estimate-1'
-import {connectWebActivity} from './activity-sync.js?v=workout-setup-1'
+import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
+import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
 const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
@@ -283,6 +284,14 @@ function findFoodMatches(name, spoken) {
 $('appleInstallHelp').hidden = !appleMobile || navigator.standalone === true
   || window.matchMedia('(display-mode: standalone)').matches
 $('appleActivityHint').hidden = !appleMobile
+if (appleMobile) connectAppleWorkoutImport({
+  dayKey,
+  save:({name, kcal}) => {
+    loadJournal()
+    state.origin = 'apple-health'
+    storeActivity('watch', kcal, {name, workoutKcal:kcal})
+  }
+})
 function foodSearchInput() {
   const field = $('foodSearch').value.trim()
   return voiceMode ? parseVoiceFood(field) : {query:field}
@@ -1386,9 +1395,9 @@ if (!bridge) connectWebActivity({
     loadJournal()
     render()
   },
-  save: ({source, workoutKcal}) => {
+  save: ({source, name, workoutKcal}) => {
     state.origin = source
-    storeActivity('watch', workoutKcal, {workoutKcal, name:source === 'zepp' ? 'Zepp' : 'Samsung Health'})
+    storeActivity('watch', workoutKcal, {workoutKcal, name})
   },
   notify
 })

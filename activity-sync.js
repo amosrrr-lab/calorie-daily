@@ -23,14 +23,15 @@ export function connectWebActivity({dayKey, journalKey, currentSource, refreshJo
   }
   let lastSource = currentSource()
   try { lastSource = localStorage.getItem(sourceKey) || lastSource } catch { /* Keep the journal source. */ }
-  if (lastSource === 'samsung') source.value = 'samsung'
+  if (['zepp', 'samsung', 'other'].includes(lastSource)) source.value = lastSource
 
   const install = get('webSyncInstall')
   let responseTimer
-  function bind(link, path, fallbackHash) {
+  function bind(link, fallbackHash) {
     let key
     const prepare = () => {
       key = encode(crypto.getRandomValues(new Uint8Array(32)))
+      const path = source.value === 'other' ? 'workout-source' : 'workout-sync'
       const fallback = encodeURIComponent(site + fallbackHash)
       link.href = `intent://activity/${path}?key=${key}&source=${source.value}#Intent;scheme=caloriedaily;package=il.amosrrr.calories.sync;S.browser_fallback_url=${fallback};end`
     }
@@ -59,7 +60,7 @@ export function connectWebActivity({dayKey, journalKey, currentSource, refreshJo
     })
   }
 
-  bind(sync, 'workout-sync', workoutFallback)
+  bind(sync, workoutFallback)
 
   function clearHash() {
     history.replaceState(history.state, '', location.pathname + location.search)
@@ -86,7 +87,7 @@ export function connectWebActivity({dayKey, journalKey, currentSource, refreshJo
 
   async function receive(response) {
     try {
-      if (!/^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{24,500}$/.test(response)) return
+      if (!/^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{24,850}$/.test(response)) return
       const raw = localStorage.getItem(pendingKey)
       const pending = JSON.parse(raw)
       if (!pending || Date.now() > pending.expires) {
@@ -106,11 +107,14 @@ export function connectWebActivity({dayKey, journalKey, currentSource, refreshJo
       }
       clearTimeout(responseTimer)
       localStorage.removeItem(pendingKey)
-      const name = result.source === 'zepp' ? 'Zepp' : 'Samsung Health'
+      const name = result.source === 'zepp' ? 'Zepp' : result.source === 'samsung' ? 'Samsung Health'
+        : typeof result.sourceName === 'string' && result.sourceName.trim() ? result.sourceName.trim().slice(0, 56) : 'Health Connect'
       const noWorkout = 'טרם התקבל אימון להיום מ־' + name + '. אפשר לסנכרן באפליקציית הכושר ולנסות שוב.'
       if (result.status !== 'ok') {
         const messages = {
           empty: noWorkout,
+          'no-sources': 'אין אימון מהשבוע האחרון ב־Health Connect. פתח את אפליקציית השעון ואפשר שיתוף של אימונים וקלוריות פעילות.',
+          cancelled: 'בחירת מקור האימונים בוטלה.',
           permission: 'לא ניתנה לרכיב הסנכרון הרשאת קריאה ב־Health Connect.',
           read: 'Health Connect החזיר שגיאה בקריאת הפעילות. בדוק הרשאות לרכיב הסנכרון.',
           unavailable: 'Health Connect אינו זמין במכשיר הזה.'
@@ -132,7 +136,7 @@ export function connectWebActivity({dayKey, journalKey, currentSource, refreshJo
       }
       refreshJournal()
       source.value = result.source
-      save({source:result.source, workoutKcal})
+      save({source:result.source, name, workoutKcal})
       showStatus('אימוני היום מ־' + name + ' נקלטו והיתרה עודכנה.')
     } catch {
       showStatus('לא ניתן לקרוא את תוצאת הסנכרון. לחץ שוב על ״סנכרון פעילות״.')
