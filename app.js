@@ -1,5 +1,6 @@
 import foodRows from './foods-data.js'
 import riceCakeRows from './rice-cake-foods.js?v=1'
+import israeliMarketRows from './israeli-market-foods.js?v=1'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
 import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=food-choices-2'
@@ -130,7 +131,7 @@ const abadiRows = [
   ["manufacturer-abadi-salt","עוגיות מזרחיות מלח, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%9E%D7%9C%D7%97-6/"],
   ["manufacturer-abadi-crispy","עוגיות מזרחיות קריספי, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%A7%D7%A8%D7%99%D7%A1%D7%A4%D7%99/"]
 ]
-const foods = [...foodRows, ...abadiRows, ...riceCakeRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
+const foods = [...foodRows, ...israeliMarketRows, ...abadiRows, ...riceCakeRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
   id, name:formatRiceCakeSpelling(hotDrinks.get(id)?.[0] ?? name), kcal,
   portions:id === 4803 ? [['אספרסו קצר', 30], ['אספרסו כפול', 60], ['כוס קפה שחור', 130]] : portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
@@ -140,7 +141,8 @@ const foods = [...foodRows, ...abadiRows, ...riceCakeRows, ...soupRows, cookedCh
 for (const personal of [...(state.customFoods ?? []), ...(state.externalFoods ?? [])]) {
   foods.push({...personal, search:normalize(personal.name)})
 }
-const spokenFoodNames = new Set(foods.flatMap(food => voiceFoodNames(food).map(normalize)))
+const similarSoundNames = new Set(foods.flatMap(food => voiceFoodNames(food).map(name => foldSimilarHebrewLetters(normalize(name)))))
+const similarSoundSearch = new WeakMap()
 let catalogTimer
 let catalogController
 let catalogQuery = ''
@@ -284,12 +286,17 @@ function searchRank(food, query) {
   if (query === 'סלט' && [9704, 3895, 9418, 3898, 9383].includes(food.id)) return 1
   return food.search.startsWith(query) ? 2 : 3
 }
+function foldSimilarHebrewLetters(text) {
+  return text.replace(/ע/g, 'א').replace(/[חכך]/g, 'ה')
+}
 function findFoodMatches(name, spoken) {
   const query = normalize(name).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
   if (!query) return []
   const alternate = ({'יוגורט באדי':'באדי תנובה', 'באדי יוגורט':'באדי תנובה'})[query] || spoken && ({'הריסה':'אריסה', 'הריסו':'אריסה', 'חריסה':'אריסה', 'סלק אדום':'סלק', 'טחינה מוכנה':'טחינה'})[query]
   const terms = (alternate || query).split(' ')
   const abadi = terms.includes('עבאדי')
+  const sound = spoken && !abadi && !alternate && query !== 'משקאות חמים'
+    && /[אעהחכך]/.test(query) ? ' ' + foldSimilarHebrewLetters(query) + ' ' : ''
   const matches = []
   for (const food of foods) {
     if (abadi && !food.search.split(' ').includes('עבאדי')) continue
@@ -298,9 +305,20 @@ function findFoodMatches(name, spoken) {
       ? hotDrinks.has(food.id)
       : terms.every((term) => food.search.includes(term)))) {
       matches.push({food, exact, rank:exact ? -1 : searchRank(food, query)})
+    } else if (sound) {
+      if (!similarSoundSearch.has(food)) {
+        const names = [food.search, ...voiceFoodNames(food).map(normalize)]
+        similarSoundSearch.set(food, names.map(text => ' ' + foldSimilarHebrewLetters(text) + ' '))
+      }
+      if (similarSoundSearch.get(food).some(text => text.includes(sound))) {
+        matches.push({food, similarSound:true, rank:6})
+      }
     }
   }
-  return matches.sort((a, b) => a.rank - b.rank || a.food.name.length - b.food.name.length || a.food.name.localeCompare(b.food.name, 'he'))
+  const hasSimilarSpelling = matches.some(entry => entry.similarSound)
+  const displayRank = entry => entry.rank + (hasSimilarSpelling && !/[א-ת]/.test(entry.food.name) ? 10 : 0)
+  return matches.sort((a, b) => displayRank(a) - displayRank(b)
+    || a.food.name.length - b.food.name.length || a.food.name.localeCompare(b.food.name, 'he'))
 }
 $('appleInstallHelp').hidden = !appleMobile || navigator.standalone === true
   || window.matchMedia('(display-mode: standalone)').matches
@@ -328,8 +346,8 @@ function updateSearch() {
   }
   if (!normalize(spoken.query)) { clearCatalog(); results.replaceChildren(); return [] }
   const allMatches = findFoodMatches(spoken.query, voiceMode)
-  const matches = normalize(spoken.query).split(' ').includes('פריכיות') ? allMatches : allMatches.slice(0, 18)
-  queueCatalog(spoken.query, voiceMode && !matches.some(entry => entry.exact || entry.rank < 5))
+  const matches = showAllFoodMatches(spoken.query, allMatches) ? allMatches : allMatches.slice(0, 18)
+  queueCatalog(spoken.query, voiceMode && !matches.some(entry => entry.exact || entry.similarSound || entry.rank < 5))
   $('voiceOnlineSingle').hidden = Boolean(bridge?.searchProducts)
   results.replaceChildren(...(matches.length ? matches.map(({food}) => {
     const row = button(formatRiceCakeSpelling(food.name), 'secondary', () => {
@@ -421,7 +439,7 @@ function listenForMeal() {
     if (partial) {
       search.value = partial
       const matches = updateSearch()
-      setVoiceStatus(riceCakeResultsMessage(matches) || message + ' אפשר לבדוק את הטקסט ולבחור מנה.')
+      setVoiceStatus(foodChoiceMessage(matches) || message + ' אפשר לבדוק את הטקסט ולבחור מנה.')
     } else {
       setVoiceStatus(message + ' אפשר גם להכתיב דרך המיקרופון של המקלדת.')
     }
@@ -470,20 +488,27 @@ function listenForMeal() {
     finishWithoutResult('לא ניתן להפעיל את הזיהוי הקולי.')
   }
 }
-function riceCakeResultsMessage(matches) {
+function foodChoiceMessage(matches) {
   if (matches.length && normalize(foodSearchInput().query) === 'פריכיות') {
     return 'נמצאו ' + fmt(matches.length) + ' סוגי פרכיות במאגר. בחר את הסוג שאכלת.'
   }
+  if (matches.some(entry => entry.similarSound)) {
+    return 'נמצאו גם התאמות בכתיב דומה. בחר את המוצר שהתכוונת אליו.'
+  }
   return ''
+}
+function showAllFoodMatches(query, matches) {
+  return normalize(query).split(' ').includes('פריכיות') || matches.some(entry => entry.similarSound)
 }
 function requiresFoodChoice(query) {
   return /^(?:פריכיות(?: דקות)?(?: (?:אורז(?: מלא)?|תירס|כוסמת|חיטה(?: מלאה)?|שיפון|קטניות))?(?: דקות)?|באדי|עבאדי|עוגיות עבאדי)$/.test(normalize(query))
 }
 function voiceMealParts(text) {
   const spoken = parseVoiceFood(text)
-  if (spokenFoodNames.has(normalize(spoken.query))) return [spoken]
-  return parseVoiceMeal(text, query => spokenFoodNames.has(normalize(query))
-    || requiresFoodChoice(query) || preferredVoiceIngredient({query}, normalize) !== undefined)
+  const known = query => similarSoundNames.has(foldSimilarHebrewLetters(normalize(query)))
+    || requiresFoodChoice(query) || preferredVoiceIngredient({query}, normalize) !== undefined
+  if (known(spoken.query)) return [spoken]
+  return parseVoiceMeal(text, known)
 }
 function processVoiceMeal(autoSave) {
   releaseVoiceRecognition()?.abort()
@@ -505,14 +530,14 @@ function processVoiceMeal(autoSave) {
   const preferred = exact.length === 0
     ? foods.find(food => food.id === preferredVoiceIngredient(spoken, normalize)) : undefined
   const food = exact.length === 1 ? exact[0].food : preferred
-  if (food && !requiresFoodChoice(spoken.query) && !/^(?:טחינה|טחינה מוכנה)$/.test(normalize(spoken.query))) {
+  if (food && !matches.some(entry => entry.similarSound) && !requiresFoodChoice(spoken.query) && !/^(?:טחינה|טחינה מוכנה)$/.test(normalize(spoken.query))) {
     if (selectSpokenFood(food, spoken) && exact.length === 1 && spoken.count !== null && autoSave) {
       voiceTranscript = transcript
       $('foodForm').requestSubmit()
     }
     return
   }
-  setVoiceStatus(riceCakeResultsMessage(matches) || (matches.length
+  setVoiceStatus(foodChoiceMessage(matches) || (matches.length
     ? 'בחר את המנה שהתכוונת אליה ובדוק את הכמות.'
     : 'מחפש התאמות בקטלוג המקוון. אפשר גם לערוך את הטקסט.'))
 }
@@ -543,10 +568,10 @@ function makeVoiceIngredient(spoken, index) {
   card.append(element('legend', spoken.query))
   const preferred = preferredVoiceIngredient(spoken, normalize)
   const matches = findFoodMatches(spoken.query, true)
-  const preferredFood = foods.find(food => food.id === preferred)
-  const matchingFoods = matches.map(entry => entry.food)
-  const candidates = [...new Map([...(preferredFood ? [preferredFood] : []),
-    ...(normalize(spoken.query).split(' ').includes('פריכיות') ? matchingFoods : matchingFoods.slice(0, 15))]
+  const hasSimilarSpelling = matches.some(entry => entry.similarSound)
+  const preferredFood = hasSimilarSpelling ? undefined : foods.find(food => food.id === preferred)
+  const matchingFoods = (showAllFoodMatches(spoken.query, matches) ? matches : matches.slice(0, 15)).map(entry => entry.food)
+  const candidates = [...new Map([...(preferredFood ? [preferredFood] : []), ...matchingFoods]
     .map(food => [food.id, food])).values()]
   const product = element('select', '')
   product.id = 'voiceProduct' + index
@@ -566,7 +591,7 @@ function makeVoiceIngredient(spoken, index) {
   const online = button('חיפוש באינטרנט', 'quiet', () => searchVoiceIngredient(row))
   card.append(productLabel, product, online, networkStatus, quantityLabel, quantity, unit, details)
   setVoiceIngredientOptions(row)
-  if (!requiresFoodChoice(spoken.query) && (preferredFood || matches[0]?.exact || matches[0]?.rank < 5)) {
+  if (!hasSimilarSpelling && !requiresFoodChoice(spoken.query) && (preferredFood || matches[0]?.exact || matches[0]?.rank < 5)) {
     product.value = String(candidates[0].id)
   }
   product.addEventListener('change', () => setVoiceIngredientQuantity(row))
@@ -660,7 +685,7 @@ function selectFood(food, savedItem) {
   $('quantityUnit').value = food.unit ?? (online ? '' : 'g')
   if (online && !foods.some((item) => item.id === food.id)) {
     foods.push({...food, search:normalize(food.name)})
-    spokenFoodNames.add(normalize(food.name))
+    similarSoundNames.add(foldSimilarHebrewLetters(normalize(food.name)))
     state.externalFoods ??= []
     state.externalFoods.push(food)
     persist()
@@ -847,7 +872,7 @@ function updateFoodSearchFromInput(event) {
     voiceTranscript = ''
     setVoiceControls(false)
     showVoiceTranscript('')
-    setVoiceStatus(riceCakeResultsMessage(matches) || 'בחר תוצאה מהמאגר כדי לרשום אותה ביומן.')
+    setVoiceStatus(foodChoiceMessage(matches) || 'בחר תוצאה מהמאגר כדי לרשום אותה ביומן.')
   }
 }
 $('foodSearch').addEventListener('input', updateFoodSearchFromInput)
@@ -902,7 +927,7 @@ $('customProductForm').addEventListener('submit', (event) => {
   const searchable = {...food, search:normalize(name)}
   if (index >= 0) foods[index] = searchable
   else foods.push(searchable)
-  spokenFoodNames.add(searchable.search)
+  similarSoundNames.add(foldSimilarHebrewLetters(searchable.search))
   persist()
   $('customProductDialog').close()
   selectFood(searchable)
