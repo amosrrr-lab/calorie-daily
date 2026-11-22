@@ -1,7 +1,7 @@
 import foodRows from './foods-data.js'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
-import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-quantities-2'
+import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=rice-cakes-1'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
@@ -257,6 +257,7 @@ function normalize(text) {
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase()
     .replace(/לחמנייה/gu, 'לחמניה').replace(/לחמניות/gu, 'לחמניה')
     .replace(/פיתות/g, 'פיתה').replace(/פיתת/g, 'פיתה')
+    .replace(/(?<!\p{L})פרי?כי(?:ות|ת)(?!\p{L})/gu, 'פריכיות')
 }
 function searchRank(food, query) {
   if (normalize(food.name) === query) return 0
@@ -450,7 +451,8 @@ function listenForMeal() {
 function voiceMealParts(text) {
   const spoken = parseVoiceFood(text)
   if (spokenFoodNames.has(normalize(spoken.query))) return [spoken]
-  return parseVoiceMeal(text, query => spokenFoodNames.has(normalize(query)))
+  return parseVoiceMeal(text, query => spokenFoodNames.has(normalize(query))
+    || preferredVoiceIngredient({query}, normalize) !== undefined)
 }
 function processVoiceMeal(autoSave) {
   releaseVoiceRecognition()?.abort()

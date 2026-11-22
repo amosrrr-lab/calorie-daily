@@ -128,6 +128,8 @@ const typicalVoiceIngredients = new Map([
   ['חומוס', {id:1646, grams:12, portion:'כף שטוחה'}],
   ['ממרח חומוס', {id:1646, grams:12, portion:'כף שטוחה'}],
   ['טחינה', {id:8366, grams:15, portion:'כף'}],
+  ['פריכיות', {id:2552, grams:12, portion:'פריכית אורז אחת'}],
+  ['פריכיות אורז', {id:2552, grams:12, portion:'פריכית אורז אחת'}],
   ['סלק', {id:9794, grams:50, portion:'מנה קטנה'}],
   ['סלק אדום', {id:9794, grams:50, portion:'מנה קטנה'}],
   ['סלק מבושל', {id:9794, grams:50, portion:'מנה קטנה'}],
