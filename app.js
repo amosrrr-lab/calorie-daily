@@ -2,7 +2,7 @@ import foodRows from './foods-data.js'
 import riceCakeRows from './rice-cake-foods.js?v=1'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
-import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=food-choices-1'
+import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=food-choices-2'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
@@ -286,8 +286,10 @@ function findFoodMatches(name, spoken) {
   if (!query) return []
   const alternate = ({'יוגורט באדי':'באדי תנובה', 'באדי יוגורט':'באדי תנובה'})[query] || spoken && ({'הריסה':'אריסה', 'הריסו':'אריסה', 'חריסה':'אריסה', 'סלק אדום':'סלק', 'טחינה מוכנה':'טחינה'})[query]
   const terms = (alternate || query).split(' ')
+  const abadi = terms.includes('עבאדי')
   const matches = []
   for (const food of foods) {
+    if (abadi && !food.search.split(' ').includes('עבאדי')) continue
     const exact = spoken && matchesVoiceFood(food, query, normalize)
     if (exact || (query === 'משקאות חמים'
       ? hotDrinks.has(food.id)
@@ -466,7 +468,7 @@ function listenForMeal() {
   }
 }
 function requiresFoodChoice(query) {
-  return /^(?:פריכיות(?: דקות)?(?: (?:אורז(?: מלא)?|תירס|כוסמת|חיטה(?: מלאה)?|שיפון|קטניות))?(?: דקות)?|באדי|עוגיות עבאדי)$/.test(normalize(query))
+  return /^(?:פריכיות(?: דקות)?(?: (?:אורז(?: מלא)?|תירס|כוסמת|חיטה(?: מלאה)?|שיפון|קטניות))?(?: דקות)?|באדי|עבאדי|עוגיות עבאדי)$/.test(normalize(query))
 }
 function voiceMealParts(text) {
   const spoken = parseVoiceFood(text)
