@@ -131,7 +131,7 @@ const abadiRows = [
   ["manufacturer-abadi-crispy","עוגיות מזרחיות קריספי, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%A7%D7%A8%D7%99%D7%A1%D7%A4%D7%99/"]
 ]
 const foods = [...foodRows, ...abadiRows, ...riceCakeRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
-  id, name:hotDrinks.get(id)?.[0] ?? name, kcal,
+  id, name:formatRiceCakeSpelling(hotDrinks.get(id)?.[0] ?? name), kcal,
   portions:id === 4803 ? [['אספרסו קצר', 30], ['אספרסו כפול', 60], ['כוס קפה שחור', 130]] : portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
   sourceUrl,
@@ -188,7 +188,7 @@ function render() {
   $('journal').replaceChildren(...[...day.meals].reverse().map((meal) => {
     const row = element('li', '')
     const content = element('div', '', 'entry')
-    content.append(element('strong', meal.items.map((item) => item.name).join(' · ')))
+    content.append(element('strong', meal.items.map((item) => formatRiceCakeSpelling(item.name)).join(' · ')))
     content.append(element('p', [fmt(mealCalories(meal)) + ' קלוריות', meal.items.map(formatQuantity).filter(Boolean).join(' + ')].filter(Boolean).join(' · ')))
     row.append(content, button('עריכה', 'quiet', () => openFood(false, meal)), button('מחיקה', 'remove', () => {
       if (!confirm('למחוק את הארוחה מהיומן?')) return
@@ -263,6 +263,9 @@ function formatQuantity(item) {
   const quantity = item.grams + (item.unit === 'ml' ? ' מ״ל' : ' גרם')
   return item.sugarTeaspoons ? quantity + ' · ' + item.sugarTeaspoons + ' כפ׳ סוכר' : quantity
 }
+function formatRiceCakeSpelling(text) {
+  return text.replace(/(?<!\p{L})([ובלכמשה]{0,2})פר(?:י?כ|ח)י(ות|ת)(?!\p{L})/gu, '$1פרכי$2')
+}
 function normalize(text) {
   return text.normalize('NFKD').replace(/[\u0591-\u05c7]/g, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase()
@@ -329,7 +332,7 @@ function updateSearch() {
   queueCatalog(spoken.query, voiceMode && !matches.some(entry => entry.exact || entry.rank < 5))
   $('voiceOnlineSingle').hidden = Boolean(bridge?.searchProducts)
   results.replaceChildren(...(matches.length ? matches.map(({food}) => {
-    const row = button(food.name, 'secondary', () => {
+    const row = button(formatRiceCakeSpelling(food.name), 'secondary', () => {
       if (voiceMode) selectSpokenFood(food, spoken)
       else selectFood(food)
     })
@@ -442,7 +445,7 @@ function listenForMeal() {
     recognizer.onresult = (event) => {
       if (!active()) return
       const result = event.results[event.resultIndex]
-      const transcript = result?.[0]?.transcript?.trim()
+      const transcript = formatRiceCakeSpelling(result?.[0]?.transcript?.trim() ?? '')
       if (!transcript) return
       showVoiceTranscript(transcript, result.isFinal)
       if (!result.isFinal) {
@@ -479,8 +482,10 @@ function voiceMealParts(text) {
 function processVoiceMeal(autoSave) {
   releaseVoiceRecognition()?.abort()
   setVoiceControls(false)
-  const transcript = $('foodSearch').value.trim()
+  const search = $('foodSearch')
+  const transcript = formatRiceCakeSpelling(search.value.trim())
   if (!transcript) return
+  search.value = transcript
   showVoiceTranscript(transcript, true)
   const parts = voiceMealParts(transcript)
   if (parts.length > 1) {
@@ -571,7 +576,7 @@ function makeVoiceIngredient(spoken, index) {
 function setVoiceIngredientOptions(row) {
   const previous = row.product.value
   row.product.replaceChildren(new Option('בחר תוצאה', ''), ...row.candidates.map(food =>
-    new Option(food.name + ' · ' + fmt(food.kcal) + ' קל׳ ל־100 · ' + food.source, food.id)))
+    new Option(formatRiceCakeSpelling(food.name) + ' · ' + fmt(food.kcal) + ' קל׳ ל־100 · ' + food.source, food.id)))
   row.product.value = row.candidates.some(food => String(food.id) === previous) ? previous : ''
 }
 function chosenVoiceIngredient(row) {
@@ -618,7 +623,7 @@ function voiceIngredientItem(row) {
   const grams = row.quantity.valueAsNumber
   const unit = row.unit.value
   if (!food || !unit || !(grams > 0 && grams <= 3000)) return
-  const item = {id:food.id, name:food.name, kcal:food.kcal, grams, unit}
+  const item = {id:food.id, name:formatRiceCakeSpelling(food.name), kcal:food.kcal, grams, unit}
   if (Number.isFinite(row.serving?.kcal) && unit === 'g') item.serving = row.serving
   return item
 }
@@ -637,9 +642,9 @@ function updateVoiceMealTotal() {
   $('saveMeal').disabled = !complete
 }
 function selectFood(food, savedItem) {
-  currentFood = food
+  currentFood = {...food, name:formatRiceCakeSpelling(food.name)}
   $('grams').disabled = false
-  $('selectedFood').textContent = food.name
+  $('selectedFood').textContent = currentFood.name
   $('drinkSugar').hidden = !acceptsAddedSugar(food.id)
   $('sugarTeaspoons').disabled = $('drinkSugar').hidden
   $('sugarTeaspoons').value = food.sugarTeaspoons ?? ''
@@ -710,7 +715,7 @@ function resetPhoto() {
 function renderDraft() {
   $('draftList').replaceChildren(...draft.map((item, index) => {
     const row = element('li', '')
-    row.append(element('span', [item.name, formatQuantity(item), fmt(itemCalories(item)) + ' קלוריות'].filter(Boolean).join(' · ')))
+    row.append(element('span', [formatRiceCakeSpelling(item.name), formatQuantity(item), fmt(itemCalories(item)) + ' קלוריות'].filter(Boolean).join(' · ')))
     const actions = element('div', '')
     actions.append(button('עריכה', 'quiet', () => {
       const itemIndex = draft.indexOf(item)
@@ -955,7 +960,7 @@ async function loadCatalog(query, page) {
     const ids = new Set(catalogItems.map((food) => food.id))
     catalogItems.push(...result.products.filter((food) => !ids.has(food.id)))
     $('catalogResults').replaceChildren(...catalogItems.map((food) => {
-      const row = button(food.name, 'secondary', () => {
+      const row = button(formatRiceCakeSpelling(food.name), 'secondary', () => {
         if (voiceMode) selectSpokenFood(food, foodSearchInput())
         else selectFood(food)
       })
@@ -1259,7 +1264,7 @@ function renderHistory() {
   $('historyList').replaceChildren(...[...meals].reverse().map((meal) => {
     const row = element('li', '')
     const content = element('div', '', 'entry')
-    content.append(element('strong', meal.items.map((item) => item.name).join(' · ')))
+    content.append(element('strong', meal.items.map((item) => formatRiceCakeSpelling(item.name)).join(' · ')))
     content.append(element('p', [fmt(mealCalories(meal)) + ' קלוריות', meal.items.map(formatQuantity).filter(Boolean).join(' + ')].filter(Boolean).join(' · ')))
     row.append(content)
     return row
@@ -1325,7 +1330,7 @@ async function recognize(file) {
       }).sort((a, b) => searchRank(a, query) - searchRank(b, query) || a.name.length - b.name.length).slice(0, 2)
       if (!matches.length) return [button(name, 'secondary', () => searchForFood(name))]
       return matches.map((food) => {
-        const choice = button(food.name, 'secondary', () => selectFood(food))
+        const choice = button(formatRiceCakeSpelling(food.name), 'secondary', () => selectFood(food))
         choice.append(element('span', ' · ' + fmt(food.kcal) + ' קלוריות ל־100 ' + (food.unit === 'ml' ? 'מ״ל' : 'גרם')))
         return choice
       })
