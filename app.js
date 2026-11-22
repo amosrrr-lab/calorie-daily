@@ -106,6 +106,7 @@ let editingMisc
 let editingItem = null
 let voiceMode = false
 let voiceRecognition
+let voiceTranscript = ''
 // Estimate per 100 g: 80 g stewed thigh meat, 15 g green olives, and 5 g sauce with about 2.5 g oil.
 const cookedChickenWithOlives = ['chicken-olive-stew', 'חלקי עוף מבושל עם זיתים מבושלים', 200, [],
   'תבשיל עוף זיתים ירוקים עוף וזיתים עוף מבושל בזיתים כרעיים שוקיים ירכיים פרגית',
@@ -295,12 +296,28 @@ function updateSearch() {
   }) : [element('p', 'אין תוצאות. אפשר לנסות שם כללי יותר.', 'hint')]))
   return matches
 }
-function setVoiceStatus(message) {
-  const status = $('voiceFoodStatus')
-  status.textContent = message
-  status.hidden = !message
+function setVoiceStatus(message, phase = 'idle') {
+  $('voiceFoodStatus').textContent = message
+  $('voicePanel').dataset.phase = phase
+}
+function showVoiceTranscript(transcript, final = false) {
+  $('voiceTranscript').textContent = transcript ? (final ? 'זוהה: ' : 'נקלט עד עכשיו: ') + transcript : ''
+  $('voiceTranscript').hidden = !transcript
+}
+function setVoiceControls(listening) {
+  $('retryVoice').hidden = listening
+  $('stopVoice').hidden = !listening
+  $('stopVoice').disabled = false
+}
+function releaseVoiceRecognition() {
+  const recognizer = voiceRecognition
+  voiceRecognition = undefined
+  return recognizer
 }
 function selectSpokenFood(food, spoken) {
+  releaseVoiceRecognition()?.abort()
+  setVoiceControls(false)
+  $('retryVoice').hidden = true
   const quantity = resolveVoiceQuantity(food, spoken, normalize)
   selectFood(food, quantity ?? {grams:''})
   setVoiceStatus(quantity ? 'בדוק את המנה והכמות לפני השמירה.' : 'בחר יחידת מידה והזן את הכמות.')
@@ -310,54 +327,102 @@ function startVoiceMeal() {
   openFood(false, undefined, false)
   $('foodTitle').textContent = 'רישום ארוחה בקול'
   voiceMode = true
+  $('voicePanel').hidden = false
+  listenForMeal()
+}
+const voiceErrors = {
+  'not-allowed': 'אין גישה למיקרופון. אם מופיעה בקשת הרשאה, אפשר שימוש במיקרופון ונסה שוב.',
+  'service-not-allowed': 'הדפדפן חסם את שירות הזיהוי הקולי.',
+  'audio-capture': 'המיקרופון לא זמין לאפליקציה. בדוק את הרשאת המיקרופון ונסה שוב.',
+  'network': 'לא ניתן להתחבר לשירות הזיהוי הקולי. בדוק את החיבור לאינטרנט ונסה שוב.',
+  'no-speech': 'לא זוהה דיבור. נסה שוב ודבר כשתופיע ההודעה ״המיקרופון פתוח״.',
+  'language-not-supported': 'שירות הזיהוי הקולי במכשיר לא תומך בעברית.'
+}
+function listenForMeal() {
+  if (voiceRecognition) return
+  const search = $('foodSearch')
+  voiceTranscript = ''
+  showVoiceTranscript('')
+  search.value = ''
+  updateSearch()
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!Recognition) {
-    setVoiceStatus('אפשר להכתיב בשדה החיפוש דרך המיקרופון במקלדת, למשל ״שתי ביצים קשות״.')
-    $('foodSearch').focus()
+    setVoiceStatus('זיהוי קולי אינו זמין כאן. לחץ בשדה החיפוש והשתמש במיקרופון של המקלדת.')
+    $('retryVoice').hidden = true
     return
   }
-  const recognizer = new Recognition()
-  voiceRecognition = recognizer
-  recognizer.lang = 'he-IL'
-  recognizer.interimResults = false
-  recognizer.maxAlternatives = 1
+
+  let recognizer
+  let partial = ''
+  setVoiceStatus('מתחבר למיקרופון…')
+  $('voiceFoodStatus').focus()
+  setVoiceControls(true)
   const active = () => voiceRecognition === recognizer && $('foodDialog').open
-  let finished = false
-  setVoiceStatus('מדברים עכשיו. למשל ״שתי ביצים קשות״ או ״150 גרם אורז לבן מבושל״.')
-  recognizer.onresult = (event) => {
-    if (!active() || finished) return
-    finished = true
-    const transcript = event.results[event.resultIndex]?.[0]?.transcript?.trim()
-    if (!transcript) { setVoiceStatus('לא נקלטה מנה. אפשר להקליד או להכתיב בשדה החיפוש.'); return }
-    if ($('foodSearch').value.trim()) return
-    $('foodSearch').value = transcript
-    const spoken = foodSearchInput()
-    const matches = updateSearch()
-    const exact = matches.filter((entry) => entry.exact)
-    if (exact.length === 1 && spoken.count !== null && selectSpokenFood(exact[0].food, spoken)) {
-      $('foodForm').requestSubmit()
-      return
+  function finishWithoutResult(message) {
+    releaseVoiceRecognition()
+    setVoiceControls(false)
+    if (partial) {
+      search.value = partial
+      updateSearch()
+      setVoiceStatus(message + ' אפשר לבדוק את הטקסט ולבחור מנה.')
+    } else {
+      setVoiceStatus(message + ' אפשר גם להכתיב דרך המיקרופון של המקלדת.')
     }
-    if (exact.length === 1 && spoken.count !== null) return
-    setVoiceStatus(matches.length
-      ? 'בחר את המנה שהתכוונת אליה ובדוק את הכמות.'
-      : 'לא נמצאה מנה מתאימה. אפשר לערוך את הטקסט ולחפש שוב.')
   }
-  recognizer.onerror = () => {
-    if (!active() || finished) return
-    finished = true
-    setVoiceStatus('הדיבור לא נקלט. אפשר להקליד או להשתמש במיקרופון של המקלדת.')
-  }
-  recognizer.onend = () => {
-    if (!active()) return
-    voiceRecognition = undefined
-    if (!finished) setVoiceStatus('לא נקלטה מנה. אפשר להקליד או להכתיב בשדה החיפוש.')
-  }
+
   try {
+    recognizer = new Recognition()
+    voiceRecognition = recognizer
+    recognizer.lang = 'he-IL'
+    recognizer.interimResults = true
+    recognizer.maxAlternatives = 1
+    recognizer.onaudiostart = () => {
+      if (active()) setVoiceStatus('המיקרופון פתוח. אמור למשל ״שתי ביצים קשות״.', 'listening')
+    }
+    recognizer.onspeechstart = () => {
+      if (active()) setVoiceStatus('דיבור נקלט…', 'speech')
+    }
+    recognizer.onspeechend = () => {
+      if (active()) setVoiceStatus('מזהה את מה שאמרת…')
+    }
+    recognizer.onresult = (event) => {
+      if (!active()) return
+      const result = event.results[event.resultIndex]
+      const transcript = result?.[0]?.transcript?.trim()
+      if (!transcript) return
+      showVoiceTranscript(transcript, result.isFinal)
+      if (!result.isFinal) {
+        partial = transcript
+        setVoiceStatus('דיבור נקלט…', 'speech')
+        return
+      }
+
+      releaseVoiceRecognition()
+      setVoiceControls(false)
+      search.value = transcript
+      const spoken = foodSearchInput()
+      const matches = updateSearch()
+      const exact = matches.filter((entry) => entry.exact)
+      if (exact.length === 1 && spoken.count !== null) {
+        if (selectSpokenFood(exact[0].food, spoken)) {
+          voiceTranscript = transcript
+          $('foodForm').requestSubmit()
+        }
+        return
+      }
+      setVoiceStatus(matches.length
+        ? 'בחר את המנה שהתכוונת אליה ובדוק את הכמות.'
+        : 'לא נמצאה מנה מתאימה. אפשר לערוך את הטקסט ולחפש שוב.')
+    }
+    recognizer.onerror = (event) => {
+      if (active()) finishWithoutResult(voiceErrors[event.error] || 'הזיהוי הקולי לא הושלם. אפשר לנסות שוב.')
+    }
+    recognizer.onend = () => {
+      if (active()) finishWithoutResult('ההאזנה הסתיימה בלי תמלול סופי.')
+    }
     recognizer.start()
   } catch {
-    voiceRecognition = undefined
-    setVoiceStatus('לא ניתן להפעיל דיבור. אפשר להקליד או להשתמש במיקרופון של המקלדת.')
+    finishWithoutResult('לא ניתן להפעיל את הזיהוי הקולי.')
   }
 }
 function selectFood(food, savedItem) {
@@ -458,6 +523,7 @@ function renderDraft() {
 }
 function openFood(withPhoto, meal, focusSearch = true) {
   voiceMode = false
+  $('voicePanel').hidden = true
   setVoiceStatus('')
   draft = meal ? meal.items.map((item) => ({...item})) : []
   editingMeal = meal?.id
@@ -517,7 +583,23 @@ $('cameraButton').addEventListener('click', () => choosePhoto(true))
 $('galleryButton').addEventListener('click', () => choosePhoto(false))
 $('manualButton').addEventListener('click', () => openFood(false))
 $('voiceMealButton').addEventListener('click', startVoiceMeal)
-$('foodSearch').addEventListener('input', updateSearch)
+$('retryVoice').addEventListener('click', listenForMeal)
+$('stopVoice').addEventListener('click', () => {
+  if (!voiceRecognition) return
+  $('stopVoice').disabled = true
+  setVoiceStatus('מזהה את מה שאמרת…')
+  voiceRecognition.stop()
+})
+$('foodSearch').addEventListener('input', () => {
+  if (voiceMode) {
+    releaseVoiceRecognition()?.abort()
+    voiceTranscript = ''
+    setVoiceControls(false)
+    showVoiceTranscript('')
+    setVoiceStatus('בחר תוצאה מהמאגר כדי לרשום אותה ביומן.')
+  }
+  updateSearch()
+})
 $('replaceFood').addEventListener('click', () => {
   clearSelection()
   searchForFood()
@@ -531,9 +613,7 @@ $('grams').addEventListener('input', updateQuantity)
 $('sugarTeaspoons').addEventListener('input', updateQuantity)
 $('addItem').addEventListener('click', () => { if (addSelected()) searchForFood() })
 $('foodDialog').addEventListener('close', () => {
-  const recognizer = voiceRecognition
-  voiceRecognition = undefined
-  recognizer?.abort()
+  releaseVoiceRecognition()?.abort()
   voiceMode = false
   resetPhoto()
   clearCatalog()
@@ -673,8 +753,10 @@ $('foodForm').addEventListener('submit', (event) => {
   else day.meals.push({id:crypto.randomUUID(), items:draft})
   persist()
   render()
+  const voiceMessage = voiceTranscript ? 'נרשם: ' + voiceTranscript + ' · ' : 'נוספו ליומן '
+  const message = voiceMode ? voiceMessage + fmt(mealCalories({items:draft})) + ' קלוריות' : 'הארוחה נשמרה'
   $('foodDialog').close()
-  notify(voiceMode ? 'נוספו ליומן ' + fmt(mealCalories({items:draft})) + ' קלוריות' : 'הארוחה נשמרה')
+  notify(message)
 })
 const goalSteps = ['goalIntro', 'goalHeightStep', 'goalWeightStep', 'goalAgeStep',
   'goalPurpose', 'goalActivityStep', 'goalRoutine', 'goalReview']
