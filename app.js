@@ -2,7 +2,7 @@ import foodRows from './foods-data.js'
 import riceCakeRows from './rice-cake-foods.js?v=1'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
-import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=rice-market-1'
+import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=food-choices-1'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
@@ -125,7 +125,12 @@ const cookedChickenWithOlives = ['chicken-olive-stew', 'חלקי עוף מבוש
 const cookedMeatballsWithGreens = ['meatballs-oil-greens', 'קציצות מבושלות עם שמן ועלים', 200,
   [['קציצה בינונית', 65]], 'קציצה קציצות בשר קציצה מבושלת קציצות ברוטב עלים ירוקים עשבי תיבול פטרוזיליה כוסברה סלרי',
   'הערכה לתבשיל ביתי']
-const foods = [...foodRows, ...riceCakeRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
+const abadiRows = [
+  ["manufacturer-abadi-sesame","עוגיות מזרחיות עם שומשום, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%A2%D7%9D-%D7%A9%D7%95%D7%9E%D7%A9%D7%95%D7%9D/"],
+  ["manufacturer-abadi-salt","עוגיות מזרחיות מלח, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%9E%D7%9C%D7%97-6/"],
+  ["manufacturer-abadi-crispy","עוגיות מזרחיות קריספי, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%A7%D7%A8%D7%99%D7%A1%D7%A4%D7%99/"]
+]
+const foods = [...foodRows, ...abadiRows, ...riceCakeRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
   id, name:hotDrinks.get(id)?.[0] ?? name, kcal,
   portions:id === 4803 ? [['אספרסו קצר', 30], ['אספרסו כפול', 60], ['כוס קפה שחור', 130]] : portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
@@ -265,6 +270,7 @@ function normalize(text) {
     .replace(/פיתות/g, 'פיתה').replace(/פיתת/g, 'פיתה')
     .replace(/(?<!\p{L})פר(?:י?כ|ח)י(?:ות|ת)(?!\p{L})/gu, 'פריכיות')
     .replace(/פריכיות של (?=פיטנס|fitness)/g, 'פריכיות ')
+    .replace(/(?:עוגיות|אוגיות|עוגיית|עוגיה|הוא גיוטה|גיוטה)(?: של)? (?:עבאדי|אבאדי|באדי|עבדי)(?!\p{L})/gu, 'עוגיות עבאדי')
 }
 function searchRank(food, query) {
   if (normalize(food.name) === query) return 0
@@ -278,7 +284,7 @@ function searchRank(food, query) {
 function findFoodMatches(name, spoken) {
   const query = normalize(name).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
   if (!query) return []
-  const alternate = spoken && ({'הריסה':'אריסה', 'הריסו':'אריסה', 'חריסה':'אריסה', 'סלק אדום':'סלק', 'טחינה מוכנה':'טחינה'})[query]
+  const alternate = ({'יוגורט באדי':'באדי תנובה', 'באדי יוגורט':'באדי תנובה'})[query] || spoken && ({'הריסה':'אריסה', 'הריסו':'אריסה', 'חריסה':'אריסה', 'סלק אדום':'סלק', 'טחינה מוכנה':'טחינה'})[query]
   const terms = (alternate || query).split(' ')
   const matches = []
   for (const food of foods) {
@@ -459,11 +465,14 @@ function listenForMeal() {
     finishWithoutResult('לא ניתן להפעיל את הזיהוי הקולי.')
   }
 }
+function requiresFoodChoice(query) {
+  return /^(?:פריכיות(?: דקות)?(?: (?:אורז(?: מלא)?|תירס|כוסמת|חיטה(?: מלאה)?|שיפון|קטניות))?(?: דקות)?|באדי|עוגיות עבאדי)$/.test(normalize(query))
+}
 function voiceMealParts(text) {
   const spoken = parseVoiceFood(text)
   if (spokenFoodNames.has(normalize(spoken.query))) return [spoken]
   return parseVoiceMeal(text, query => spokenFoodNames.has(normalize(query))
-    || preferredVoiceIngredient({query}, normalize) !== undefined)
+    || requiresFoodChoice(query) || preferredVoiceIngredient({query}, normalize) !== undefined)
 }
 function processVoiceMeal(autoSave) {
   releaseVoiceRecognition()?.abort()
@@ -483,7 +492,7 @@ function processVoiceMeal(autoSave) {
   const preferred = exact.length === 0
     ? foods.find(food => food.id === preferredVoiceIngredient(spoken, normalize)) : undefined
   const food = exact.length === 1 ? exact[0].food : preferred
-  if (food && !/^(?:טחינה|טחינה מוכנה)$/.test(normalize(spoken.query))) {
+  if (food && !requiresFoodChoice(spoken.query) && !/^(?:טחינה|טחינה מוכנה)$/.test(normalize(spoken.query))) {
     if (selectSpokenFood(food, spoken) && exact.length === 1 && spoken.count !== null && autoSave) {
       voiceTranscript = transcript
       $('foodForm').requestSubmit()
@@ -544,7 +553,9 @@ function makeVoiceIngredient(spoken, index) {
   const online = button('חיפוש באינטרנט', 'quiet', () => searchVoiceIngredient(row))
   card.append(productLabel, product, online, networkStatus, quantityLabel, quantity, unit, details)
   setVoiceIngredientOptions(row)
-  if (preferredFood || matches[0]?.exact || matches[0]?.rank < 5) product.value = String(candidates[0].id)
+  if (!requiresFoodChoice(spoken.query) && (preferredFood || matches[0]?.exact || matches[0]?.rank < 5)) {
+    product.value = String(candidates[0].id)
+  }
   product.addEventListener('change', () => setVoiceIngredientQuantity(row))
   quantity.addEventListener('input', () => {
     row.estimate = ''
