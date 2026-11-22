@@ -420,8 +420,8 @@ function listenForMeal() {
     setVoiceControls(false)
     if (partial) {
       search.value = partial
-      updateSearch()
-      setVoiceStatus(message + ' אפשר לבדוק את הטקסט ולבחור מנה.')
+      const matches = updateSearch()
+      setVoiceStatus(riceCakeResultsMessage(matches) || message + ' אפשר לבדוק את הטקסט ולבחור מנה.')
     } else {
       setVoiceStatus(message + ' אפשר גם להכתיב דרך המיקרופון של המקלדת.')
     }
@@ -470,6 +470,12 @@ function listenForMeal() {
     finishWithoutResult('לא ניתן להפעיל את הזיהוי הקולי.')
   }
 }
+function riceCakeResultsMessage(matches) {
+  if (matches.length && normalize(foodSearchInput().query) === 'פריכיות') {
+    return 'נמצאו ' + fmt(matches.length) + ' סוגי פרכיות במאגר. בחר את הסוג שאכלת.'
+  }
+  return ''
+}
 function requiresFoodChoice(query) {
   return /^(?:פריכיות(?: דקות)?(?: (?:אורז(?: מלא)?|תירס|כוסמת|חיטה(?: מלאה)?|שיפון|קטניות))?(?: דקות)?|באדי|עבאדי|עוגיות עבאדי)$/.test(normalize(query))
 }
@@ -506,9 +512,9 @@ function processVoiceMeal(autoSave) {
     }
     return
   }
-  setVoiceStatus(matches.length
+  setVoiceStatus(riceCakeResultsMessage(matches) || (matches.length
     ? 'בחר את המנה שהתכוונת אליה ובדוק את הכמות.'
-    : 'מחפש התאמות בקטלוג המקוון. אפשר גם לערוך את הטקסט.')
+    : 'מחפש התאמות בקטלוג המקוון. אפשר גם לערוך את הטקסט.'))
 }
 function resetVoiceIngredients() {
   for (const row of voiceIngredients) row.controller?.abort()
@@ -824,16 +830,28 @@ $('stopVoice').addEventListener('click', () => {
   setVoiceStatus('מזהה את מה שאמרת…')
   voiceRecognition.stop()
 })
-$('foodSearch').addEventListener('input', () => {
+function updateFoodSearchFromInput(event) {
+  if (event.isComposing) return
+  const search = event.currentTarget
+  const spelling = formatRiceCakeSpelling(search.value)
+  if (spelling !== search.value) {
+    const before = search.value
+    const start = formatRiceCakeSpelling(before.slice(0, search.selectionStart)).length
+    const end = formatRiceCakeSpelling(before.slice(0, search.selectionEnd)).length
+    search.value = spelling
+    search.setSelectionRange(start, end)
+  }
+  const matches = updateSearch()
   if (voiceMode) {
     releaseVoiceRecognition()?.abort()
     voiceTranscript = ''
     setVoiceControls(false)
     showVoiceTranscript('')
-    setVoiceStatus('בחר תוצאה מהמאגר כדי לרשום אותה ביומן.')
+    setVoiceStatus(riceCakeResultsMessage(matches) || 'בחר תוצאה מהמאגר כדי לרשום אותה ביומן.')
   }
-  updateSearch()
-})
+}
+$('foodSearch').addEventListener('input', updateFoodSearchFromInput)
+$('foodSearch').addEventListener('compositionend', updateFoodSearchFromInput)
 $('replaceFood').addEventListener('click', () => {
   clearSelection()
   searchForFood()
