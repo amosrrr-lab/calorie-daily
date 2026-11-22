@@ -81,8 +81,12 @@ export function resolveVoiceQuantity(food, {count, unit}, normalize) {
     : portions.filter(([name, grams]) => grams < 1000 && !/^(כוס|כף|כפית|קילוגרם|חבילה|בקבוק|שקית)( |$)/.test(normalize(name)))
   const candidates = primary.length ? primary : (!unit || unit === 'יחידה') && medium.length ? medium : byUnit
   if (candidates.length !== 1) return
-  const [name, grams] = candidates[0]
-  if (grams * count <= 3000) return {grams:grams * count, serving:{name, grams, count}}
+  const [name, grams, kcal] = candidates[0]
+  if (grams * count <= 3000) {
+    const serving = {name, grams, count}
+    if (Number.isFinite(kcal)) serving.kcal = kcal
+    return {grams:grams * count, serving}
+  }
 }
 
 function splitKnownFoods(phrase, isKnownFood) {
@@ -128,6 +132,9 @@ const typicalVoiceIngredients = new Map([
   ['חומוס', {id:1646, grams:12, portion:'כף שטוחה'}],
   ['ממרח חומוס', {id:1646, grams:12, portion:'כף שטוחה'}],
   ['טחינה', {id:8366, grams:15, portion:'כף'}],
+  ['פריכיות פיטנס', {id:'rice-cake-7290111564277', grams:4, portion:'יחידה'}],
+  ['פיטנס פריכיות', {id:'rice-cake-7290111564277', grams:4, portion:'יחידה'}],
+  ['פריכיות fitness', {id:'rice-cake-7290111564277', grams:4, portion:'יחידה'}],
   ['פריכיות', {id:2552, grams:12, portion:'פריכית אורז אחת'}],
   ['פריכיות אורז', {id:2552, grams:12, portion:'פריכית אורז אחת'}],
   ['סלק', {id:9794, grams:50, portion:'מנה קטנה'}],
@@ -167,7 +174,10 @@ export function voiceIngredientDefault(food, spoken, normalize) {
     const grams = typical.grams * spoken.count
     return grams > 0 && grams <= 3000 ? {grams, estimated:true} : {grams:''}
   }
-  if (typical && base !== 'ml') return {...typical, estimated:true}
+  if (typical && base !== 'ml') {
+    const unit = typical.id === food.id && resolveVoiceQuantity(food, {count:1, unit:'יחידה'}, normalize)
+    return {...typical, ...(Number.isFinite(unit?.serving.kcal) ? unit : {}), estimated:true}
+  }
   const standard = portions.find(([name]) => /^(מנה|יחידה|פרוסה) בינונית$/.test(normalize(name)))
     ?? portions.find(([name]) => /^(מנה|יחידה|פרוסה|כף|כוס)$|^פיתה(?: ביס)? אחת(?: |$)/.test(normalize(name)))
   return standard ? {grams:standard[1], portion:standard[0], estimated:true}

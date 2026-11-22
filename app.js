@@ -1,7 +1,8 @@
 import foodRows from './foods-data.js'
+import riceCakeRows from './rice-cake-foods.js?v=1'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
-import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=rice-cakes-1'
+import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=rice-market-1'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
@@ -65,7 +66,12 @@ function activityCalories(activity) {
   const kcal = activity?.source === 'manual' ? activity.kcal : activity?.workoutKcal
   return Number.isFinite(kcal) && kcal >= 0 ? kcal : null
 }
-const itemCalories = (item) => item.grams * item.kcal / 100 + (item.sugarTeaspoons ?? 0) * sugarKcalPerTeaspoon
+function itemCalories(item) {
+  const portion = item.serving
+  const foodCalories = Number.isFinite(portion?.kcal) && Number.isFinite(portion.count)
+    ? portion.count * portion.kcal : item.grams * item.kcal / 100
+  return foodCalories + (item.sugarTeaspoons ?? 0) * sugarKcalPerTeaspoon
+}
 const mealCalories = (meal) => meal.items.reduce((sum, item) => sum + itemCalories(item), 0)
 function loadJournal() {
   try {
@@ -119,7 +125,7 @@ const cookedChickenWithOlives = ['chicken-olive-stew', 'חלקי עוף מבוש
 const cookedMeatballsWithGreens = ['meatballs-oil-greens', 'קציצות מבושלות עם שמן ועלים', 200,
   [['קציצה בינונית', 65]], 'קציצה קציצות בשר קציצה מבושלת קציצות ברוטב עלים ירוקים עשבי תיבול פטרוזיליה כוסברה סלרי',
   'הערכה לתבשיל ביתי']
-const foods = [...foodRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
+const foods = [...foodRows, ...riceCakeRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
   id, name:hotDrinks.get(id)?.[0] ?? name, kcal,
   portions:id === 4803 ? [['אספרסו קצר', 30], ['אספרסו כפול', 60], ['כוס קפה שחור', 130]] : portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
@@ -257,7 +263,8 @@ function normalize(text) {
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase()
     .replace(/לחמנייה/gu, 'לחמניה').replace(/לחמניות/gu, 'לחמניה')
     .replace(/פיתות/g, 'פיתה').replace(/פיתת/g, 'פיתה')
-    .replace(/(?<!\p{L})פרי?כי(?:ות|ת)(?!\p{L})/gu, 'פריכיות')
+    .replace(/(?<!\p{L})פר(?:י?כ|ח)י(?:ות|ת)(?!\p{L})/gu, 'פריכיות')
+    .replace(/פריכיות של (?=פיטנס|fitness)/g, 'פריכיות ')
 }
 function searchRank(food, query) {
   if (normalize(food.name) === query) return 0
@@ -309,7 +316,8 @@ function updateSearch() {
     return []
   }
   if (!normalize(spoken.query)) { clearCatalog(); results.replaceChildren(); return [] }
-  const matches = findFoodMatches(spoken.query, voiceMode).slice(0, 18)
+  const allMatches = findFoodMatches(spoken.query, voiceMode)
+  const matches = normalize(spoken.query).split(' ').includes('פריכיות') ? allMatches : allMatches.slice(0, 18)
   queueCatalog(spoken.query, voiceMode && !matches.some(entry => entry.exact || entry.rank < 5))
   $('voiceOnlineSingle').hidden = Boolean(bridge?.searchProducts)
   results.replaceChildren(...(matches.length ? matches.map(({food}) => {
@@ -317,7 +325,10 @@ function updateSearch() {
       if (voiceMode) selectSpokenFood(food, spoken)
       else selectFood(food)
     })
-    row.append(element('span', food.source + ' · ' + fmt(food.kcal) + (food.unit === 'ml' ? ' ל־100 מ״ל' : ' ל־100 ג׳')))
+    const declared = food.portions.find(portion => Number.isFinite(portion[2]))
+    row.append(element('span', food.source + ' · ' + (declared
+      ? 'כ־' + fmt(declared[2]) + ' קל׳ ל' + declared[0]
+      : fmt(food.kcal) + (food.unit === 'ml' ? ' ל־100 מ״ל' : ' ל־100 ג׳'))))
     return row
   }) : [element('p', 'אין תוצאות. אפשר לנסות שם כללי יותר.', 'hint')]))
   return matches
@@ -511,7 +522,9 @@ function makeVoiceIngredient(spoken, index) {
   const preferred = preferredVoiceIngredient(spoken, normalize)
   const matches = findFoodMatches(spoken.query, true)
   const preferredFood = foods.find(food => food.id === preferred)
-  const candidates = [...new Map([...(preferredFood ? [preferredFood] : []), ...matches.map(entry => entry.food).slice(0, 15)]
+  const matchingFoods = matches.map(entry => entry.food)
+  const candidates = [...new Map([...(preferredFood ? [preferredFood] : []),
+    ...(normalize(spoken.query).split(' ').includes('פריכיות') ? matchingFoods : matchingFoods.slice(0, 15))]
     .map(food => [food.id, food])).values()]
   const product = element('select', '')
   product.id = 'voiceProduct' + index
@@ -535,6 +548,7 @@ function makeVoiceIngredient(spoken, index) {
   product.addEventListener('change', () => setVoiceIngredientQuantity(row))
   quantity.addEventListener('input', () => {
     row.estimate = ''
+    row.serving = undefined
     updateVoiceMealTotal()
   })
   unit.addEventListener('change', updateVoiceMealTotal)
@@ -559,6 +573,7 @@ function setVoiceIngredientQuantity(row, refresh = true) {
   row.quantity.hidden = row.quantityLabel.hidden = !food
   row.quantityLabel.textContent = unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות לפי היחידה על האריזה'
   row.quantity.value = proposed.grams ?? ''
+  row.serving = proposed.serving
   row.estimate = proposed.estimated ? (proposed.portion ?? 'מנה משוערת') : ''
   if (refresh) updateVoiceMealTotal()
 }
@@ -590,7 +605,9 @@ function voiceIngredientItem(row) {
   const grams = row.quantity.valueAsNumber
   const unit = row.unit.value
   if (!food || !unit || !(grams > 0 && grams <= 3000)) return
-  return {id:food.id, name:food.name, kcal:food.kcal, grams, unit}
+  const item = {id:food.id, name:food.name, kcal:food.kcal, grams, unit}
+  if (Number.isFinite(row.serving?.kcal) && unit === 'g') item.serving = row.serving
+  return item
 }
 function updateVoiceMealTotal() {
   const items = voiceIngredients.map(row => {
@@ -626,18 +643,22 @@ function selectFood(food, savedItem) {
   }
   const servingOptions = food.portions
     .filter(([, grams]) => Number.isFinite(grams) && grams > 0)
-    .map(([name, grams], index) => {
+    .map(([name, grams, kcal], index) => {
       const option = new Option(name + ' (' + grams + ' ג׳)', String(index))
       option.dataset.name = name
       option.dataset.grams = grams
+      if (Number.isFinite(kcal)) option.dataset.kcal = kcal
       return option
     })
   $('serving').replaceChildren(new Option('גרם', ''), ...servingOptions)
   const savedOption = servingOptions.find((option) =>
     option.dataset.name === savedItem?.serving?.name &&
     Number(option.dataset.grams) === savedItem.serving.grams)
-  $('serving').value = savedOption?.value ?? ''
-  $('grams').value = savedOption ? savedItem.serving.count : savedItem?.grams ?? ($('photoTools').hidden ? 100 : '')
+  const declaredUnit = savedItem ? undefined : servingOptions.find(option =>
+    option.dataset.name === 'יחידה' && option.dataset.kcal !== undefined)
+  $('serving').value = savedOption?.value ?? declaredUnit?.value ?? ''
+  $('grams').value = savedOption ? savedItem.serving.count : declaredUnit ? 1
+    : savedItem?.grams ?? ($('photoTools').hidden ? 100 : '')
   updateQuantity()
   $('portion').hidden = $('addItem').hidden = false
   $('addItem').textContent = editingItem === null ? 'הוספת רכיב' : 'עדכון רכיב'
@@ -853,7 +874,11 @@ $('customProductForm').addEventListener('submit', (event) => {
 })
 function selectedServing() {
   const option = $('serving').selectedOptions[0]
-  if (option?.dataset.grams) return {name:option.dataset.name, grams:Number(option.dataset.grams)}
+  if (option?.dataset.grams) {
+    const serving = {name:option.dataset.name, grams:Number(option.dataset.grams)}
+    if (option.dataset.kcal !== undefined) serving.kcal = Number(option.dataset.kcal)
+    return serving
+  }
 }
 function updateQuantity() {
   if (!currentFood) return
@@ -878,7 +903,7 @@ function updateQuantity() {
   const sugarTeaspoons = sugar.disabled ? 0 : Number(sugar.value)
   $('quantitySummary').textContent = unit && input.validity.valid && sugar.validity.valid
     ? (serving ? new Intl.NumberFormat('he-IL', {maximumFractionDigits:3}).format(grams) + ' גרם · ' : '') +
-      fmt(itemCalories({grams, kcal:currentFood.kcal, sugarTeaspoons})) + ' קלוריות'
+      fmt(itemCalories({grams, kcal:currentFood.kcal, sugarTeaspoons, serving:serving && {...serving, count}})) + ' קלוריות'
     : ''
 }
 function clearCatalog() {
