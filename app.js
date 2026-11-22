@@ -1,7 +1,7 @@
 import foodRows from './foods-data.js'
 import {soupRows, commonSoups} from './soups-data.js'
 import {searchCatalog} from './catalog.js?v=voice-meals-1'
-import {parseVoiceFood, matchesVoiceFood, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-estimate-1'
+import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-list-1'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
@@ -129,6 +129,7 @@ const foods = [...foodRows, ...soupRows, cookedChickenWithOlives, cookedMeatball
 for (const personal of [...(state.customFoods ?? []), ...(state.externalFoods ?? [])]) {
   foods.push({...personal, search:normalize(personal.name)})
 }
+const spokenFoodNames = new Set(foods.flatMap(food => voiceFoodNames(food).map(normalize)))
 let catalogTimer
 let catalogController
 let catalogQuery = ''
@@ -269,7 +270,8 @@ function searchRank(food, query) {
 function findFoodMatches(name, spoken) {
   const query = normalize(name).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
   if (!query) return []
-  const terms = query.split(' ')
+  const alternate = spoken && ({'הריסה':'אריסה', 'חריסה':'אריסה', 'סלק אדום':'סלק', 'טחינה מוכנה':'טחינה'})[query]
+  const terms = (alternate || query).split(' ')
   const matches = []
   for (const food of foods) {
     const exact = spoken && matchesVoiceFood(food, query, normalize)
@@ -446,10 +448,9 @@ function listenForMeal() {
   }
 }
 function voiceMealParts(text) {
-  const parts = parseVoiceMeal(text)
-  if (parts.length < 2) return parts
   const spoken = parseVoiceFood(text)
-  return findFoodMatches(spoken.query, true).some(entry => entry.exact) ? [spoken] : parts
+  if (spokenFoodNames.has(normalize(spoken.query))) return [spoken]
+  return parseVoiceMeal(text, query => spokenFoodNames.has(normalize(query)))
 }
 function processVoiceMeal(autoSave) {
   releaseVoiceRecognition()?.abort()
@@ -469,7 +470,7 @@ function processVoiceMeal(autoSave) {
   const preferred = exact.length === 0
     ? foods.find(food => food.id === preferredVoiceIngredient(spoken, normalize)) : undefined
   const food = exact.length === 1 ? exact[0].food : preferred
-  if (food) {
+  if (food && !/^(?:טחינה|טחינה מוכנה)$/.test(normalize(spoken.query))) {
     if (selectSpokenFood(food, spoken) && exact.length === 1 && spoken.count !== null && autoSave) {
       voiceTranscript = transcript
       $('foodForm').requestSubmit()
@@ -616,6 +617,7 @@ function selectFood(food, savedItem) {
   $('quantityUnit').value = food.unit ?? (online ? '' : 'g')
   if (online && !foods.some((item) => item.id === food.id)) {
     foods.push({...food, search:normalize(food.name)})
+    spokenFoodNames.add(normalize(food.name))
     state.externalFoods ??= []
     state.externalFoods.push(food)
     persist()
@@ -841,6 +843,7 @@ $('customProductForm').addEventListener('submit', (event) => {
   const searchable = {...food, search:normalize(name)}
   if (index >= 0) foods[index] = searchable
   else foods.push(searchable)
+  spokenFoodNames.add(searchable.search)
   persist()
   $('customProductDialog').close()
   selectFood(searchable)

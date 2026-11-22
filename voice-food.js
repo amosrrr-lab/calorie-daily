@@ -48,10 +48,20 @@ const spokenAliases = new Map([
   [1564, ['ביצה קשה', 'ביצים קשות']],
   [2721, ['אורז לבן מבושל', 'אורז מבושל ללא שמן']],
   [3225, ['בננה', 'בננות']],
+  [3793, ['מלפפון', 'מלפפון טרי']],
+  [9794, ['סלק', 'סלק אדום', 'סלק מבושל']],
+  [8366, ['טחינה', 'טחינה מוכנה']],
+  [1898, ['טחינה גולמית']],
+  [8372, ['אריסה', 'הריסה', 'חריסה', 'אריסה חריפה', 'הריסה חריפה', 'ממרח אריסה']],
+  ['manufacturer-agami-7290018296615', ['פיתה כוסמין', 'פיתה ביס כוסמין']],
   [2432, ['עוגיית תמרים', 'עוגיית תמרים מגולגלת', 'עוגיות תמרים מגולגלות']],
   [3030, ['גחנון', 'ג חנון', 'גחנות', 'גחנונים', 'ג חנון אפוי']],
   ['meatballs-oil-greens', ['קציצה מבושלת עם שמן ועלים', 'קציצה עם שמן ועלים', 'קציצות עם שמן ועלים']]
 ])
+
+export function voiceFoodNames(food) {
+  return [food.name, ...(spokenAliases.get(food.id) ?? [])]
+}
 
 export function matchesVoiceFood(food, query, normalize) {
   return normalize(food.name) === query || (spokenAliases.get(food.id) ?? []).some(name => normalize(name) === query)
@@ -74,13 +84,35 @@ export function resolveVoiceQuantity(food, {count, unit}, normalize) {
   if (grams * count <= 3000) return {grams:grams * count, serving:{name, grams, count}}
 }
 
-export function parseVoiceMeal(transcript) {
+function splitKnownFoods(phrase, isKnownFood) {
+  const whole = parseVoiceFood(phrase)
+  if (!whole.query) return []
+  if (isKnownFood(whole.query)) return [whole]
+
+  const words = phrase.trim().split(/\s+/)
+  // Keep long unrecognized dictation intact rather than guessing where names end.
+  if (words.length > 32) return [whole]
+  const from = new Map([[words.length, []]])
+  for (let start = words.length - 1; start >= 0; start--) {
+    for (const [end, tail] of [...from].sort(([a], [b]) => b - a)) {
+      if (end <= start) continue
+      const food = parseVoiceFood(words.slice(start, end).join(' '))
+      if (food.query && isKnownFood(food.query)) {
+        from.set(start, [food, ...tail])
+        break
+      }
+    }
+  }
+  return from.get(0) ?? [whole]
+}
+
+export function parseVoiceMeal(transcript, isKnownFood = () => false) {
   const text = transcript.trim().replace(/[\u0591-\u05bd\u05bf-\u05c7]/g, '')
     .replace(/^(?:(?:אני )?אכלתי|(?:אני )?שתיתי|תוסיף(?: לי)?|תרשום(?: לי)?)\s+/, '')
     .replace(/^את\s+/, '').replace(/^(?:היום|עכשיו)\s+/, '')
   if (/^לא(?:\s|$)/.test(text)) return []
   const parts = text.split(/\s+עם\s+|,(?!\d)\s*|\s+וגם\s+|\s+ו[-־]\s*|\s+ו(?!(?:ניל|פל|ופל|יסקי|ודקה|יטמין|עשרים|שלושים|ארבעים|חמישים|שישים|שבעים|שמונים|תשעים)(?:\s|$))(?=[\p{L}\d])/u)
-    .map(parseVoiceFood).filter(part => part.query)
+    .flatMap(phrase => splitKnownFoods(phrase, isKnownFood))
   return parts
 }
 
@@ -90,7 +122,10 @@ const typicalVoiceIngredients = new Map([
   ['פסטרמה', {id:1119, grams:44, portion:'שתי פרוסות'}],
   ['חומוס', {id:1646, grams:12, portion:'כף שטוחה'}],
   ['ממרח חומוס', {id:1646, grams:12, portion:'כף שטוחה'}],
-  ['טחינה', {grams:15, portion:'כף'}],
+  ['טחינה', {id:8366, grams:15, portion:'כף'}],
+  ['סלק', {id:9794, grams:50, portion:'מנה קטנה'}],
+  ['סלק אדום', {id:9794, grams:50, portion:'מנה קטנה'}],
+  ['סלק מבושל', {id:9794, grams:50, portion:'מנה קטנה'}],
   ['מיונז', {grams:15, portion:'כף'}],
   ['קטשופ', {grams:15, portion:'כף'}],
   ['חמאה', {grams:5, portion:'כפית'}]
@@ -127,7 +162,7 @@ export function voiceIngredientDefault(food, spoken, normalize) {
   }
   if (typical && base !== 'ml') return {...typical, estimated:true}
   const standard = portions.find(([name]) => /^(מנה|יחידה|פרוסה) בינונית$/.test(normalize(name)))
-    ?? portions.find(([name]) => /^(מנה|יחידה|פרוסה|כף|כוס)$/.test(normalize(name)))
+    ?? portions.find(([name]) => /^(מנה|יחידה|פרוסה|כף|כוס)$|^פיתה(?: ביס)? אחת(?: |$)/.test(normalize(name)))
   return standard ? {grams:standard[1], portion:standard[0], estimated:true}
     : {grams:''}
 }
