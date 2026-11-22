@@ -1,5 +1,5 @@
 <!doctype html><html lang="he" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css?v=voice-meals-1"><script type="module" src="app.js?v=israeli-market-1"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css?v=voice-meals-1"><script type="module" src="app.js?v=product-scan-1"></script></head>
 <body><div class="shell">
 <header class="app-header">
   <strong class="brand"><span class="brand-mark" aria-hidden="true"></span>קלוריות ביום</strong>
@@ -169,7 +169,7 @@
   </section>
 </dialog>
 <dialog id="foodDialog"><div class="dialog-head"><h2 id="foodTitle">הוספת ארוחה</h2><button class="close" data-close="foodDialog" aria-label="סגירה">×</button></div>
-<div id="photoTools" hidden><div class="actions"><button type="button" class="secondary" id="cameraButton">מצלמה</button><button type="button" class="secondary" id="galleryButton">גלריה</button></div>
+<div id="photoTools" hidden><div class="actions"><button type="button" class="secondary" id="cameraButton">מצלמה</button><button type="button" class="secondary" id="galleryButton">גלריה</button><button type="button" class="secondary" id="barcodeButton">צילום ברקוד</button></div>
 <input class="file-input" type="file" id="cameraInput" accept="image/*" capture="environment"><input class="file-input" type="file" id="imageInput" accept="image/*">
 <img id="photoPreview" alt="תמונת הארוחה" hidden><p class="hint" id="photoStatus" role="status"></p><div id="photoCandidates" class="candidates"></div><button type="button" id="otherPhotoFood" class="quiet" hidden>חיפוש מזון אחר</button></div>
 <form id="foodForm">
@@ -243,7 +243,7 @@
 <p class="hint">ליתרה מתווספות קלוריות ששויכו לאימונים מתועדים.</p>
 <form id="activityForm"><label for="manualCalories">קלוריות מאימון בהזנה ידנית</label><input id="manualCalories" type="number" min="0" max="5000" inputmode="numeric" placeholder="למשל, 300"><p class="hint">ההזנה מחליפה את סך קלוריות האימונים להיום.</p><button class="secondary wide">עדכון ידני</button></form></dialog>
 <dialog id="customProductDialog"><div class="dialog-head"><h2>מוצר חדש</h2><button class="close" data-close="customProductDialog" aria-label="סגירה">×</button></div>
-<form id="customProductForm"><label for="customProductName">שם המוצר והמותג</label><input id="customProductName" required maxlength="160">
+<form id="customProductForm"><p class="hint" id="customProductBarcode" hidden></p><label for="customProductName">שם המוצר והמותג</label><input id="customProductName" required maxlength="160">
 <label for="customProductCalories">קלוריות ל־100 לפי האריזה</label><input id="customProductCalories" required type="number" min="0" step="any" inputmode="decimal">
 <label for="customProductUnit">יחידת המידה של הערכים</label><select id="customProductUnit"><option value="g">ל־100 גרם</option><option value="ml">ל־100 מ״ל</option></select>
 <button class="primary wide" type="submit">שמירת המוצר</button></form></dialog>

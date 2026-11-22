@@ -48,7 +48,8 @@ export function searchCatalog(query, page, signal) {
   })
 }
 async function searchWebCatalog(query, page, signal) {
-  const url = /^\d{8,14}$/.test(query)
+  const barcode = /^\d{8,14}$/.test(query)
+  const url = barcode
     ? new URL('/api/v2/product/' + query + '.json', 'https://world.openfoodfacts.org')
     : new URL('/cgi/search.pl', 'https://world.openfoodfacts.org')
   url.search = new URLSearchParams({
@@ -57,6 +58,7 @@ async function searchWebCatalog(query, page, signal) {
   })
   const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000)
   const response = await fetch(url, {signal:requestSignal, credentials:'omit'})
+  if (barcode && response.status === 404) return {products:[], next:false}
   if (!response.ok) throw new Error('קטלוג המוצרים אינו זמין כרגע. אפשר לנסות שוב.')
   const result = await response.json()
   const products = (result.products ?? (result.product ? [result.product] : [])).map(catalogFood).filter(Boolean)

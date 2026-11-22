@@ -2,7 +2,9 @@ import foodRows from './foods-data.js'
 import riceCakeRows from './rice-cake-foods.js?v=1'
 import israeliMarketRows from './israeli-market-foods.js?v=1'
 import {soupRows, commonSoups} from './soups-data.js'
-import {searchCatalog} from './catalog.js?v=voice-meals-1'
+import {searchCatalog} from './catalog.js?v=product-scan-1'
+import {isProductCode} from './barcode.js?v=1'
+import {retailFoods} from './retail-foods.js?v=1'
 import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=food-choices-2'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
@@ -138,7 +140,10 @@ const foods = [...foodRows, ...israeliMarketRows, ...abadiRows, ...riceCakeRows,
   sourceUrl,
   search:normalize([name, aliases, commonSoups.get(id), ...(hotDrinks.get(id) ?? [])].join(' '))
 }))
+const foodsByBarcode = new Map(retailFoods.map(food => [food.barcode, food]))
+foods.push(...retailFoods.map(food => ({...food, search:normalize(food.name + ' ' + food.aliases)})))
 for (const personal of [...(state.customFoods ?? []), ...(state.externalFoods ?? [])]) {
+  if (personal.barcode) foodsByBarcode.set(personal.barcode, personal)
   foods.push({...personal, search:normalize(personal.name)})
 }
 const similarSoundNames = new Set(foods.flatMap(food => voiceFoodNames(food).map(name => foldSimilarHebrewLetters(normalize(name)))))
@@ -149,6 +154,10 @@ let catalogQuery = ''
 let catalogPage = 0
 let catalogItems = []
 let photoRun = 0
+let barcodeOnly = false
+let photoCatalogController
+let photoBarcode
+let customProductBarcode
 let objectURL
 let syncing = false
 let requestVersion = 0
@@ -292,6 +301,10 @@ function foldSimilarHebrewLetters(text) {
 function findFoodMatches(name, spoken) {
   const query = normalize(name).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
   if (!query) return []
+  if (isProductCode(query)) {
+    const food = foodByBarcode(query)
+    return food ? [{food, exact:true, rank:-1}] : []
+  }
   const alternate = ({'יוגורט באדי':'באדי תנובה', 'באדי יוגורט':'באדי תנובה'})[query] || spoken && ({'הריסה':'אריסה', 'הריסו':'אריסה', 'חריסה':'אריסה', 'סלק אדום':'סלק', 'טחינה מוכנה':'טחינה'})[query]
   const terms = (alternate || query).split(' ')
   const abadi = terms.includes('עבאדי')
@@ -347,7 +360,9 @@ function updateSearch() {
   if (!normalize(spoken.query)) { clearCatalog(); results.replaceChildren(); return [] }
   const allMatches = findFoodMatches(spoken.query, voiceMode)
   const matches = showAllFoodMatches(spoken.query, allMatches) ? allMatches : allMatches.slice(0, 18)
-  queueCatalog(spoken.query, voiceMode && !matches.some(entry => entry.exact || entry.similarSound || entry.rank < 5))
+  if (isProductCode(spoken.query) && matches.length) clearCatalog()
+  else queueCatalog(spoken.query, !matches.length || isProductCode(spoken.query)
+    || voiceMode && !matches.some(entry => entry.exact || entry.similarSound || entry.rank < 5))
   $('voiceOnlineSingle').hidden = Boolean(bridge?.searchProducts)
   results.replaceChildren(...(matches.length ? matches.map(({food}) => {
     const row = button(formatRiceCakeSpelling(food.name), 'secondary', () => {
@@ -679,7 +694,7 @@ function selectFood(food, savedItem) {
   $('drinkSugar').hidden = !acceptsAddedSugar(food.id)
   $('sugarTeaspoons').disabled = $('drinkSugar').hidden
   $('sugarTeaspoons').value = food.sugarTeaspoons ?? ''
-  const online = food.source === 'Open Food Facts'
+  const online = food.source === 'Open Food Facts' && !food.localCatalog
   $('quantityUnit').hidden = $('quantityUnitLabel').hidden = !online
   $('quantityUnit').required = online
   $('quantityUnit').value = food.unit ?? (online ? '' : 'g')
@@ -734,6 +749,9 @@ function searchForFood(query = '') {
 }
 function resetPhoto() {
   photoRun++
+  barcodeOnly = false
+  photoBarcode = undefined
+  photoCatalogController?.abort()
   if (objectURL) URL.revokeObjectURL(objectURL)
   objectURL = undefined
   $('cameraInput').value = $('imageInput').value = ''
@@ -824,8 +842,10 @@ function readFoodItem() {
   if (sugarTeaspoons > 0) item.sugarTeaspoons = sugarTeaspoons
   return item
 }
-function choosePhoto(camera) {
-  $('photoStatus').textContent = ''
+function choosePhoto(camera, productBarcode = false) {
+  barcodeOnly = productBarcode
+  $('photoStatus').textContent = productBarcode ? 'צלם את הברקוד במלואו, מקרוב ובאור טוב.' : ''
+  $(camera ? 'cameraInput' : 'imageInput').value = ''
   if (bridge?.choosePhoto) bridge.choosePhoto(camera)
   else $(camera ? 'cameraInput' : 'imageInput').click()
 }
@@ -835,6 +855,7 @@ $('photoButton').addEventListener('click', () => {
 })
 $('cameraButton').addEventListener('click', () => choosePhoto(true))
 $('galleryButton').addEventListener('click', () => choosePhoto(false))
+$('barcodeButton').addEventListener('click', () => choosePhoto(true, true))
 $('manualButton').addEventListener('click', () => openFood(false))
 $('voiceMealButton').addEventListener('click', startVoiceMeal)
 $('voiceSearchMeal').addEventListener('click', () => processVoiceMeal(false))
@@ -907,7 +928,11 @@ $('foodSearch').addEventListener('keydown', (event) => {
 })
 $('catalogMore').addEventListener('click', () => loadCatalog(catalogQuery, catalogPage + 1))
 $('customProductButton').addEventListener('click', () => {
-  $('customProductName').value = $('foodSearch').value.trim()
+  const query = $('foodSearch').value.trim()
+  customProductBarcode = isProductCode(query) ? query : photoBarcode
+  $('customProductName').value = isProductCode(query) ? '' : query
+  $('customProductBarcode').textContent = customProductBarcode ? 'ברקוד ' + customProductBarcode : ''
+  $('customProductBarcode').hidden = !customProductBarcode
   $('customProductCalories').value = ''
   $('customProductDialog').showModal()
 })
@@ -919,8 +944,14 @@ $('customProductForm').addEventListener('submit', (event) => {
   if (!name || !Number.isFinite(kcal) || kcal < 0) return
   const unit = $('customProductUnit').value
   state.customFoods ??= []
-  const previous = state.customFoods.find((food) => normalize(food.name) === normalize(name) && food.unit === unit)
+  const previous = state.customFoods.find(food => customProductBarcode
+    ? food.barcode === customProductBarcode
+    : !food.barcode && normalize(food.name) === normalize(name) && food.unit === unit)
   const food = {id:previous?.id ?? 'custom-' + crypto.randomUUID(), name, kcal, unit, portions:[], source:'הזנה שלי'}
+  if (customProductBarcode) {
+    food.barcode = customProductBarcode
+    foodsByBarcode.set(food.barcode, food)
+  }
   state.customFoods = state.customFoods.filter((item) => item.id !== food.id)
   state.customFoods.push(food)
   const index = foods.findIndex((item) => item.id === food.id)
@@ -989,6 +1020,7 @@ function queueCatalog(query, webFallback = false) {
 }
 async function loadCatalog(query, page) {
   if (query.length < 2) return
+  if (isProductCode(query) && foodByBarcode(query)) return
   catalogController?.abort()
   const controller = new AbortController()
   catalogController = controller
@@ -1333,9 +1365,49 @@ for (const control of document.querySelectorAll('[data-close]')) {
   control.addEventListener('click', () => $(control.dataset.close).close())
 }
 
+function foodByBarcode(code) {
+  return foodsByBarcode.get(code) ?? foods.find(food => food.id === 'off-' + code)
+}
+
+async function showBarcodeProduct(code, run) {
+  const status = $('photoStatus')
+  status.textContent = 'נקרא ברקוד ' + code + '. מחפש את המוצר…'
+  const controller = new AbortController()
+  photoCatalogController = controller
+  try {
+    const local = foodByBarcode(code)
+    const food = local ?? (await searchCatalog(code, 1, controller.signal)).products.find(product =>
+      product.id.replace(/^off-0*/, '') === code.replace(/^0+/, ''))
+    if (run !== photoRun) return
+    if (!food) {
+      photoBarcode = code
+      status.textContent = 'נקרא ברקוד ' + code + ', אבל לא נמצאו ערכים למוצר. אפשר לחפש לפי שם או להזין מהתווית.'
+      return
+    }
+    status.textContent = 'נמצא מוצר לפי ברקוד ' + code + '. בחר אותו ובדוק את הכמות.'
+    const choice = button(food.name, 'secondary', () => {
+      selectFood(food)
+      if (food.portions.length === 1) {
+        $('serving').selectedIndex = 1
+        $('grams').value = 1
+        updateQuantity()
+      }
+    })
+    choice.append(element('span', ' · ' + fmt(food.kcal) + ' קלוריות ל־100 ' + (food.unit === 'ml' ? 'מ״ל' : 'גרם')))
+    $('photoCandidates').replaceChildren(choice)
+  } catch {
+    if (run !== photoRun) return
+    photoBarcode = code
+    status.textContent = 'נקרא ברקוד ' + code + ', אך החיפוש המקוון לא זמין כרגע. אפשר לחפש לפי שם או להזין מהתווית.'
+  }
+}
+
 async function recognize(file) {
   if (!file) return
   const run = ++photoRun
+  const scanOnly = barcodeOnly
+  photoBarcode = undefined
+  photoCatalogController?.abort()
   if (objectURL) URL.revokeObjectURL(objectURL)
   objectURL = URL.createObjectURL(file)
   const image = $('photoPreview')
@@ -1347,6 +1419,13 @@ async function recognize(file) {
   try {
     await image.decode()
     if (run !== photoRun) return
+    const code = await import('./barcode.js?v=1').then(reader => reader.readProductCode(image)).catch(() => null)
+    if (run !== photoRun) return
+    if (code) return await showBarcodeProduct(code, run)
+    if (scanOnly) {
+      $('photoStatus').textContent = 'הברקוד לא נקרא. אפשר לצלם שוב או להקליד את הספרות בחיפוש.'
+      return
+    }
     $('photoStatus').textContent = 'טוען את זיהוי המזון. בפעם הראשונה זה עשוי לקחת מעט זמן…'
     const model = await import('./vision.js?v=2')
     if (run !== photoRun) return

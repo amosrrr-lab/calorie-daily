@@ -9,3 +9,8 @@ https://data.gov.il/he/datasets/ministry-health/nutrition-database
 USDA FoodData Central, SR Legacy April 2018, 7,793 records, CC0.
 Original English descriptions and FDC IDs retained. Hebrew search aliases added for common food terms. Values refer to 100 grams.
 https://fdc.nal.usda.gov/download-datasets/
+
+Local Israel barcode catalog derived from Open Food Facts contributors under ODbL 1.0.
+https://il.openfoodfacts.org/cgi/search.pl?action=process&download=on&tagtype_0=countries&tag_contains_0=contains&tag_0=israel
+https://opendatacommons.org/licenses/odbl/1-0/
+ZXing for JS 0.23.0, Apache 2.0, included as ZXING-LICENSE.
