@@ -236,3 +236,8 @@ input[type=number] { font-variant-numeric: tabular-nums; }
 .voice-panel[data-phase="speech"] .voice-status::before { background: var(--focus); box-shadow: 0 0 0 3px var(--lime); }
 .voice-transcript { margin-top: 7px; overflow-wrap: anywhere; }
 .voice-panel button { margin-top: 6px; }
+
+.voice-ingredient { border: 1px solid var(--line); border-radius: 12px; min-inline-size: 0; margin: 10px 0; padding: 10px; }
+.voice-ingredient legend, .voice-meal-total { font-weight: 700; }
+.voice-ingredient select { text-overflow: ellipsis; }
+.voice-meal-total { padding: 10px; background: var(--lime); border-radius: 8px; }

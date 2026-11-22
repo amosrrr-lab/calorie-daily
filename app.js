@@ -1,7 +1,7 @@
 import foodRows from './foods-data.js'
 import {soupRows, commonSoups} from './soups-data.js'
-import {searchCatalog} from './catalog.js'
-import {parseVoiceFood, matchesVoiceFood, resolveVoiceQuantity} from './voice-food.js?v=1'
+import {searchCatalog} from './catalog.js?v=voice-meals-1'
+import {parseVoiceFood, matchesVoiceFood, resolveVoiceQuantity, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=voice-meals-1'
 import {connectWebActivity} from './activity-sync.js?v=workout-setup-1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
 const $ = (id) => document.getElementById(id)
@@ -107,6 +107,7 @@ let editingItem = null
 let voiceMode = false
 let voiceRecognition
 let voiceTranscript = ''
+let voiceIngredients = []
 // Estimate per 100 g: 80 g stewed thigh meat, 15 g green olives, and 5 g sauce with about 2.5 g oil.
 const cookedChickenWithOlives = ['chicken-olive-stew', 'חלקי עוף מבושל עם זיתים מבושלים', 200, [],
   'תבשיל עוף זיתים ירוקים עוף וזיתים עוף מבושל בזיתים כרעיים שוקיים ירכיים פרגית',
@@ -250,6 +251,7 @@ function formatQuantity(item) {
 function normalize(text) {
   return text.normalize('NFKD').replace(/[\u0591-\u05c7]/g, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase()
+    .replace(/לחמנייה/gu, 'לחמניה').replace(/לחמניות/gu, 'לחמניה')
     .replace(/פיתות/g, 'פיתה').replace(/פיתת/g, 'פיתה')
 }
 function searchRank(food, query) {
@@ -283,9 +285,16 @@ function foodSearchInput() {
 function updateSearch() {
   const spoken = foodSearchInput()
   const results = $('searchResults')
-  queueCatalog(spoken.query)
-  if (!normalize(spoken.query)) { results.replaceChildren(); return [] }
+  $('voiceOnlineSingle').hidden = true
+  if (voiceMode && voiceMealParts($('foodSearch').value).length > 1) {
+    results.replaceChildren()
+    clearCatalog()
+    return []
+  }
+  if (!normalize(spoken.query)) { clearCatalog(); results.replaceChildren(); return [] }
   const matches = findFoodMatches(spoken.query, voiceMode).slice(0, 18)
+  queueCatalog(spoken.query, voiceMode && !matches.some(entry => entry.exact || entry.rank < 5))
+  $('voiceOnlineSingle').hidden = !voiceMode
   results.replaceChildren(...(matches.length ? matches.map(({food}) => {
     const row = button(food.name, 'secondary', () => {
       if (voiceMode) selectSpokenFood(food, spoken)
@@ -328,6 +337,7 @@ function startVoiceMeal() {
   $('foodTitle').textContent = 'רישום ארוחה בקול'
   voiceMode = true
   $('voicePanel').hidden = false
+  $('voiceSearchMeal').hidden = false
   listenForMeal()
 }
 const voiceErrors = {
@@ -341,6 +351,8 @@ const voiceErrors = {
 function listenForMeal() {
   if (voiceRecognition) return
   const search = $('foodSearch')
+  resetVoiceIngredients()
+  renderDraft()
   voiceTranscript = ''
   showVoiceTranscript('')
   search.value = ''
@@ -400,19 +412,7 @@ function listenForMeal() {
       releaseVoiceRecognition()
       setVoiceControls(false)
       search.value = transcript
-      const spoken = foodSearchInput()
-      const matches = updateSearch()
-      const exact = matches.filter((entry) => entry.exact)
-      if (exact.length === 1 && spoken.count !== null) {
-        if (selectSpokenFood(exact[0].food, spoken)) {
-          voiceTranscript = transcript
-          $('foodForm').requestSubmit()
-        }
-        return
-      }
-      setVoiceStatus(matches.length
-        ? 'בחר את המנה שהתכוונת אליה ובדוק את הכמות.'
-        : 'לא נמצאה מנה מתאימה. אפשר לערוך את הטקסט ולחפש שוב.')
+      processVoiceMeal(true)
     }
     recognizer.onerror = (event) => {
       if (active()) finishWithoutResult(voiceErrors[event.error] || 'הזיהוי הקולי לא הושלם. אפשר לנסות שוב.')
@@ -424,6 +424,161 @@ function listenForMeal() {
   } catch {
     finishWithoutResult('לא ניתן להפעיל את הזיהוי הקולי.')
   }
+}
+function voiceMealParts(text) {
+  const parts = parseVoiceMeal(text)
+  if (parts.length < 2) return parts
+  const spoken = parseVoiceFood(text)
+  return findFoodMatches(spoken.query, true).some(entry => entry.exact) ? [spoken] : parts
+}
+function processVoiceMeal(autoSave) {
+  releaseVoiceRecognition()?.abort()
+  setVoiceControls(false)
+  const transcript = $('foodSearch').value.trim()
+  if (!transcript) return
+  showVoiceTranscript(transcript, true)
+  const parts = voiceMealParts(transcript)
+  if (parts.length > 1) {
+    openVoiceIngredients(parts)
+    return
+  }
+
+  const spoken = foodSearchInput()
+  const matches = updateSearch()
+  const exact = matches.filter(entry => entry.exact)
+  if (exact.length === 1 && spoken.count !== null) {
+    if (selectSpokenFood(exact[0].food, spoken) && autoSave) {
+      voiceTranscript = transcript
+      $('foodForm').requestSubmit()
+    }
+    return
+  }
+  setVoiceStatus(matches.length
+    ? 'בחר את המנה שהתכוונת אליה ובדוק את הכמות.'
+    : 'מחפש התאמות בקטלוג המקוון. אפשר גם לערוך את הטקסט.')
+}
+function resetVoiceIngredients() {
+  for (const row of voiceIngredients) row.controller?.abort()
+  voiceIngredients = []
+  $('voiceIngredients').replaceChildren()
+  $('voiceMealTotal').hidden = $('voiceIngredientSection').hidden = true
+  $('foodLookup').hidden = false
+  $('voiceSearchMeal').hidden = !voiceMode
+  $('voiceOnlineSingle').hidden = true
+}
+function openVoiceIngredients(parts) {
+  resetVoiceIngredients()
+  clearCatalog()
+  clearSelection()
+  $('foodLookup').hidden = true
+  $('voiceIngredientSection').hidden = false
+  setVoiceStatus('בדוק את הרכיבים ואת הכמויות המשוערות. אפשר לתקן כל רכיב בנפרד.')
+  voiceIngredients = parts.map(makeVoiceIngredient)
+  $('voiceIngredients').replaceChildren(...voiceIngredients.map(row => row.card))
+  updateVoiceMealTotal()
+  voiceIngredients.filter(row => !row.candidates.some(food => food.source !== 'USDA'))
+    .forEach(searchVoiceIngredient)
+}
+function makeVoiceIngredient(spoken, index) {
+  const card = element('fieldset', '', 'voice-ingredient')
+  card.append(element('legend', spoken.query))
+  const preferred = preferredVoiceIngredient(spoken, normalize)
+  const matches = findFoodMatches(spoken.query, true)
+  const preferredFood = foods.find(food => food.id === preferred)
+  const candidates = [...new Map([...(preferredFood ? [preferredFood] : []), ...matches.map(entry => entry.food).slice(0, 15)]
+    .map(food => [food.id, food])).values()]
+  const product = element('select', '')
+  product.id = 'voiceProduct' + index
+  const productLabel = element('label', 'מזון מהמאגר')
+  productLabel.htmlFor = product.id
+  const quantity = element('input', '')
+  Object.assign(quantity, {type:'number', min:'0.01', max:'3000', step:'any', inputMode:'decimal', id:'voiceQuantity' + index})
+  const quantityLabel = element('label', 'כמות')
+  quantityLabel.htmlFor = quantity.id
+  const unit = element('select', '')
+  unit.setAttribute('aria-label', 'יחידת מידה עבור ' + spoken.query)
+  unit.append(new Option('בחר גרם או מ״ל', ''), new Option('גרם', 'g'), new Option('מ״ל', 'ml'))
+  const details = element('p', '', 'hint')
+  const networkStatus = element('p', '', 'hint')
+  networkStatus.setAttribute('role', 'status')
+  const row = {card, spoken, candidates, product, quantity, quantityLabel, unit, details, networkStatus}
+  const online = button('חיפוש באינטרנט', 'quiet', () => searchVoiceIngredient(row))
+  card.append(productLabel, product, online, networkStatus, quantityLabel, quantity, unit, details)
+  setVoiceIngredientOptions(row)
+  if (preferredFood || matches[0]?.exact || matches[0]?.rank < 5) product.value = String(candidates[0].id)
+  product.addEventListener('change', () => setVoiceIngredientQuantity(row))
+  quantity.addEventListener('input', () => {
+    row.estimate = ''
+    updateVoiceMealTotal()
+  })
+  unit.addEventListener('change', updateVoiceMealTotal)
+  setVoiceIngredientQuantity(row, false)
+  return row
+}
+function setVoiceIngredientOptions(row) {
+  const previous = row.product.value
+  row.product.replaceChildren(new Option('בחר תוצאה', ''), ...row.candidates.map(food =>
+    new Option(food.name + ' · ' + fmt(food.kcal) + ' קל׳ ל־100 · ' + food.source, food.id)))
+  row.product.value = row.candidates.some(food => String(food.id) === previous) ? previous : ''
+}
+function chosenVoiceIngredient(row) {
+  return row.candidates.find(food => String(food.id) === row.product.value)
+}
+function setVoiceIngredientQuantity(row, refresh = true) {
+  const food = chosenVoiceIngredient(row)
+  const proposed = food ? voiceIngredientDefault(food, row.spoken, normalize) : {}
+  const unit = food?.unit ?? (food && food.source !== 'Open Food Facts' ? 'g' : '')
+  row.unit.value = unit || proposed.unit || ''
+  row.unit.hidden = !food || Boolean(unit)
+  row.quantity.hidden = row.quantityLabel.hidden = !food
+  row.quantityLabel.textContent = unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות לפי היחידה על האריזה'
+  row.quantity.value = proposed.grams ?? ''
+  row.estimate = proposed.estimated ? (proposed.portion ?? 'מנה משוערת') : ''
+  if (refresh) updateVoiceMealTotal()
+}
+async function searchVoiceIngredient(row) {
+  if (row.controller) return
+  const controller = new AbortController()
+  row.controller = controller
+  row.networkStatus.textContent = 'מחפש ב־Open Food Facts…'
+  try {
+    const {products} = await searchCatalog(row.spoken.query, 1, controller.signal)
+    if (controller.signal.aborted) return
+    const ids = new Set(row.candidates.map(food => food.id))
+    row.candidates.push(...products.filter(food => !ids.has(food.id)))
+    setVoiceIngredientOptions(row)
+    if (!row.product.value && products.length) {
+      row.product.value = String(products[0].id)
+      setVoiceIngredientQuantity(row)
+    }
+    row.networkStatus.textContent = products.length ? 'תוצאות מ־Open Food Facts נוספו לרשימה. בדוק התאמה לאריזה.'
+      : 'לא נמצאה התאמה ב־Open Food Facts.'
+  } catch {
+    if (!controller.signal.aborted) row.networkStatus.textContent = 'החיפוש המקוון לא זמין כרגע. אפשר לנסות שוב.'
+  } finally {
+    row.controller = undefined
+  }
+}
+function voiceIngredientItem(row) {
+  const food = chosenVoiceIngredient(row)
+  const grams = row.quantity.valueAsNumber
+  const unit = row.unit.value
+  if (!food || !unit || !(grams > 0 && grams <= 3000)) return
+  return {id:food.id, name:food.name, kcal:food.kcal, grams, unit}
+}
+function updateVoiceMealTotal() {
+  const items = voiceIngredients.map(row => {
+    const item = voiceIngredientItem(row)
+    row.details.textContent = item ? [row.estimate ? 'הערכת כמות: ' + row.estimate : '', fmt(itemCalories(item)) + ' קלוריות']
+      .filter(Boolean).join(' · ') : chosenVoiceIngredient(row) ? 'השלם את הכמות או יחידת המידה.' : 'בחר את המוצר שמתאים לרכיב.'
+    return item
+  })
+  const complete = items.every(Boolean)
+  const total = $('voiceMealTotal')
+  total.hidden = !items.length
+  total.textContent = complete ? 'סה״כ משוער לארוחה: ' + fmt(mealCalories({items})) + ' קלוריות'
+    : 'יש להשלים את הרכיבים החסרים כדי לחשב את הסך הכולל.'
+  $('saveMeal').disabled = !complete
 }
 function selectFood(food, savedItem) {
   currentFood = food
@@ -523,6 +678,7 @@ function renderDraft() {
 }
 function openFood(withPhoto, meal, focusSearch = true) {
   voiceMode = false
+  resetVoiceIngredients()
   $('voicePanel').hidden = true
   setVoiceStatus('')
   draft = meal ? meal.items.map((item) => ({...item})) : []
@@ -583,6 +739,17 @@ $('cameraButton').addEventListener('click', () => choosePhoto(true))
 $('galleryButton').addEventListener('click', () => choosePhoto(false))
 $('manualButton').addEventListener('click', () => openFood(false))
 $('voiceMealButton').addEventListener('click', startVoiceMeal)
+$('voiceSearchMeal').addEventListener('click', () => processVoiceMeal(false))
+$('voiceOnlineSingle').addEventListener('click', () => {
+  clearTimeout(catalogTimer)
+  loadCatalog(foodSearchInput().query, 1)
+})
+$('voiceEditMeal').addEventListener('click', () => {
+  resetVoiceIngredients()
+  renderDraft()
+  updateSearch()
+  $('foodSearch').focus()
+})
 $('retryVoice').addEventListener('click', listenForMeal)
 $('stopVoice').addEventListener('click', () => {
   if (!voiceRecognition) return
@@ -615,6 +782,7 @@ $('addItem').addEventListener('click', () => { if (addSelected()) searchForFood(
 $('foodDialog').addEventListener('close', () => {
   releaseVoiceRecognition()?.abort()
   voiceMode = false
+  resetVoiceIngredients()
   resetPhoto()
   clearCatalog()
 })
@@ -623,7 +791,8 @@ $('foodSearch').addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault()
     clearTimeout(catalogTimer)
-    loadCatalog(foodSearchInput().query, 1)
+    if (voiceMode) processVoiceMeal(false)
+    else loadCatalog(foodSearchInput().query, 1)
   }
 })
 $('catalogMore').addEventListener('click', () => loadCatalog(catalogQuery, catalogPage + 1))
@@ -693,12 +862,12 @@ function clearCatalog() {
   $('catalogStatus').textContent = ''
   $('catalogMore').hidden = true
 }
-function queueCatalog(query) {
+function queueCatalog(query, webFallback = false) {
   clearTimeout(catalogTimer)
   catalogController?.abort()
   if (query.length < 2) { clearCatalog(); return }
-  if (!bridge?.searchProducts) {
-    $('catalogStatus').textContent = 'חיפוש מוצרים ומותגים מקוון זמין באפליקציית Android.'
+  if (!bridge?.searchProducts && !webFallback) {
+    $('catalogStatus').textContent = voiceMode ? '' : 'חיפוש מוצרים ומותגים מקוון זמין באפליקציית Android.'
     return
   }
   $('catalogStatus').textContent = 'מחפש גם בקטלוג המוצרים…'
@@ -746,6 +915,11 @@ async function loadCatalog(query, page) {
 }
 $('foodForm').addEventListener('submit', (event) => {
   event.preventDefault()
+  if (voiceIngredients.length) {
+    const items = voiceIngredients.map(voiceIngredientItem)
+    if (!items.every(Boolean)) return
+    draft.push(...items)
+  }
   if (!addSelected() || !draft.length) return
   const day = today()
   const index = day.meals.findIndex((meal) => meal.id === editingMeal)

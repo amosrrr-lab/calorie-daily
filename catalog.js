@@ -22,7 +22,7 @@ export function catalogFood(product) {
 
 export function searchCatalog(query, page, signal) {
   const bridge = window.CalorieAndroid
-  if (!bridge?.searchProducts) return Promise.reject(new Error('החיפוש המקוון זמין באפליקציית Android.'))
+  if (!bridge?.searchProducts) return searchWebCatalog(query, page, signal)
   const id = ++sequence
   return new Promise((resolve, reject) => {
     const cleanup = () => {
@@ -46,6 +46,21 @@ export function searchCatalog(query, page, signal) {
     })
     bridge.searchProducts(query, page, id)
   })
+}
+async function searchWebCatalog(query, page, signal) {
+  const url = /^\d{8,14}$/.test(query)
+    ? new URL('/api/v2/product/' + query + '.json', 'https://world.openfoodfacts.org')
+    : new URL('/cgi/search.pl', 'https://world.openfoodfacts.org')
+  url.search = new URLSearchParams({
+    search_terms:query, search_simple:1, action:'process', json:1, page, page_size:12,
+    fields:'code,product_name_he,product_name,product_name_en,nutriments,brands,product_quantity_unit'
+  })
+  const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000)
+  const response = await fetch(url, {signal:requestSignal, credentials:'omit'})
+  if (!response.ok) throw new Error('קטלוג המוצרים אינו זמין כרגע. אפשר לנסות שוב.')
+  const result = await response.json()
+  const products = (result.products ?? (result.product ? [result.product] : [])).map(catalogFood).filter(Boolean)
+  return {products, next:Number(result.page) < Number(result.page_count)}
 }
 window.onCalorieCatalog = (id, raw, error) => {
   const request = pending.get(id)
