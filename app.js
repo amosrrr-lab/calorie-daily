@@ -8,6 +8,7 @@ import {retailFoods} from './retail-foods.js?v=1'
 import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=food-choices-2'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
+import {backupCounts, backupSizeLimit, createBackup, readBackup, restoreBackup} from './journal-backup.js?v=1'
 import {connectBalanceWidget} from './balance-widget.js?v=lock-guide-1'
 const $ = (id) => document.getElementById(id)
 const fmt = (number) => Math.round(number).toLocaleString('he-IL')
@@ -1413,6 +1414,75 @@ async function showBarcodeProduct(code, run) {
     status.textContent = 'נקרא ברקוד ' + code + ', אך החיפוש המקוון לא זמין כרגע. אפשר לחפש לפי שם או להזין מהתווית.'
   }
 }
+
+const backupDialog = $('journalBackupDialog')
+const backupFile = $('journalBackupFile')
+const backupStatus = $('backupImportStatus')
+const restoreButton = $('restoreJournalBackup')
+let selectedBackup
+
+$('journalBackupButton').addEventListener('click', () => {
+  selectedBackup = undefined
+  backupFile.value = ''
+  backupStatus.textContent = ''
+  $('backupExportStatus').textContent = ''
+  restoreButton.hidden = true
+  backupDialog.showModal()
+})
+$('saveJournalBackup').addEventListener('click', () => {
+  const status = $('backupExportStatus')
+  try {
+    const data = createBackup(state)
+    const filename = 'calorie-daily-backup-' + dayKey() + '.json'
+    const url = URL.createObjectURL(new Blob([data], {type:'application/json'}))
+    const link = element('a', '')
+    link.href = url
+    link.download = filename
+    document.body.append(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 30000)
+    status.textContent = 'ההורדה התבקשה. אפשר לבחור כאן את הקובץ שהורדת כדי לבדוק אותו.'
+  } catch {
+    status.textContent = 'לא ניתן היה ליצור קובץ גיבוי.'
+  }
+})
+backupFile.addEventListener('change', async () => {
+  const file = backupFile.files[0]
+  selectedBackup = undefined
+  backupStatus.textContent = ''
+  restoreButton.hidden = true
+  if (!file) return
+  try {
+    if (file.size > backupSizeLimit) throw new Error('Backup too large')
+    const backup = readBackup(await file.text())
+    if (!backupDialog.open || backupFile.files[0] !== file) return
+    selectedBackup = backup
+    const {days, meals, misc, workouts, foods} = backupCounts(backup.state)
+    const date = new Date(backup.exportedAt).toLocaleString('he-IL')
+    backupStatus.textContent = `גיבוי תקין מ־${date}. ${fmt(days)} ימים ביומן, ${fmt(meals)} ארוחות, ${fmt(misc)} רישומי שונות, ${fmt(workouts)} רישומי אימון ו־${fmt(foods)} מזונות שמורים.`
+    if (!(days || foods || backup.state.target || backup.state.goal)) {
+      backupStatus.textContent += ' אין בקובץ רישומים או יעד לשחזור.'
+      return
+    }
+    backupStatus.textContent += ' השחזור יוסיף את הרישומים החסרים וישמור רישומים תואמים שכבר קיימים.'
+    restoreButton.hidden = false
+  } catch {
+    if (backupFile.files[0] === file) backupStatus.textContent = 'הקובץ לא נקרא כגיבוי תקין של ״קלוריות ביום״.'
+  }
+})
+restoreButton.addEventListener('click', () => {
+  if (!selectedBackup) return
+  try {
+    const current = JSON.parse(localStorage.getItem(storageKey))
+    const restored = restoreBackup(current ? {...state, ...current} : state, selectedBackup.state)
+    localStorage.setItem(storageKey, JSON.stringify(restored))
+  } catch {
+    backupStatus.textContent = 'השחזור לא נשמר. הנתונים הקיימים נשארו ביומן.'
+    return
+  }
+  location.reload()
+})
 
 async function recognize(file) {
   if (!file) return
