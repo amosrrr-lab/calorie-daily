@@ -853,6 +853,11 @@ $('photoButton').addEventListener('click', () => {
   openFood(true)
   choosePhoto(true)
 })
+$('homeBarcodeButton').addEventListener('click', () => {
+  openFood(true)
+  $('foodTitle').textContent = 'צילום ברקוד'
+  choosePhoto(true, true)
+})
 $('cameraButton').addEventListener('click', () => choosePhoto(true))
 $('galleryButton').addEventListener('click', () => choosePhoto(false))
 $('barcodeButton').addEventListener('click', () => choosePhoto(true, true))
@@ -1078,9 +1083,15 @@ $('foodForm').addEventListener('submit', (event) => {
   $('foodDialog').close()
   notify(message)
 })
-const goalSteps = ['goalIntro', 'goalHeightStep', 'goalWeightStep', 'goalAgeStep',
-  'goalPurpose', 'goalActivityStep', 'goalRoutine', 'goalReview']
+const goalSteps = [
+  ['goalIntro'],
+  ['goalHeightStep', 'goalWeightStep', 'goalAgeStep'],
+  ['goalPurpose', 'goalActivityStep'],
+  ['goalRoutine'],
+  ['goalReview']
+]
 const finalGoalStep = goalSteps.length - 1
+const goalSections = goalSteps.flat().map($)
 
 function bodyMassIndex() {
   const height = $('goalHeight')
@@ -1107,15 +1118,17 @@ for (const [fieldId, rulerId] of rulers) {
 
 function showGoalStep(step) {
   goalStep = step
-  goalSteps.forEach((id, index) => { $(id).hidden = index !== step })
+  const visibleSections = goalSteps[step]
+  for (const section of goalSections) section.hidden = !visibleSections.includes(section.id)
+  $('settingsForm').dataset.step = step
   $('goalMessage').textContent = ''
-  $('goalProgress').textContent = step > 0 && goalReviewMode !== 'manual' ? `שלב ${step} מתוך ${finalGoalStep}` : ''
+  $('goalProgress').textContent = step > 0 && step < finalGoalStep ? `שלב ${step} מתוך ${finalGoalStep - 1}` : ''
   $('goalBack').hidden = step === 0
   $('goalNext').hidden = step === finalGoalStep
   $('saveGoalButton').hidden = step !== finalGoalStep
-  $('goalNext').textContent = step === 0 ? 'מתחילים ←' : step === finalGoalStep - 1 ? 'לתוכנית שלי ←' : 'המשך ←'
+  $('goalNext').textContent = step === 0 ? 'מתחילים' : step === finalGoalStep - 1 ? 'לתוכנית שלי' : 'המשך'
   $('skipGoalButton').hidden = step !== 0
-  if ($('settingsDialog').open) $(goalSteps[step]).querySelector('h3').focus({preventScroll:true})
+  if ($('settingsDialog').open) $(visibleSections[0]).querySelector('h3').focus({preventScroll:true})
   $('settingsForm').querySelector('.goal-steps').scrollTop = 0
 }
 
@@ -1225,9 +1238,8 @@ function nextGoalStep() {
   if (goalStep >= finalGoalStep) return
   const skipEstimate = $('skipEstimate').checked
   const required = {
-    1:['goalHeight'], 2:['weightInput'], 3:['goalAge'],
-    4:skipEstimate ? [] : ['goalSex'],
-    5:skipEstimate ? [] : ['goalActivity']
+    1:['goalHeight', 'weightInput', 'goalAge'],
+    2:skipEstimate ? [] : ['goalSex', 'goalActivity']
   }
   const invalid = (required[goalStep] ?? []).map($).find((field) => !field.value || !field.checkValidity())
   if (invalid) {

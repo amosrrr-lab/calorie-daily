@@ -1,5 +1,5 @@
 <!doctype html><html lang="he" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f3eb"><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png"><link rel="stylesheet" href="style.css?v=voice-meals-1"><script type="module" src="app.js?v=product-scan-1"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#fbf9f5"><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png?v=apple-1"><link rel="manifest" href="./manifest.webmanifest?v=apple-1"><link rel="icon" type="image/png" href="./app-icon-192.png?v=apple-1"><link rel="stylesheet" href="style.css?v=apple-1"><script type="module" src="app.js?v=apple-1"></script></head>
 <body><div class="shell">
 <header class="app-header">
   <strong class="brand"><span class="brand-mark" aria-hidden="true"></span>קלוריות ביום</strong>
@@ -11,7 +11,7 @@
     <div id="goalEmpty">
       <h2>מה היעד שלך?</h2>
       <p>כדי לראות כמה קלוריות נשארו להיום, אפשר להגדיר יעד יומי.</p>
-      <button id="setupButton" class="setup-button" type="button">הגדרת יעד <span aria-hidden="true">←</span></button>
+      <button id="setupButton" class="setup-button" type="button">הגדרת יעד</button>
     </div>
     <div id="balanceReadout" hidden>
       <p id="balanceLabel">נותרו היום</p>
@@ -27,7 +27,8 @@
   <div class="actions meal-actions">
     <button id="photoButton" class="primary"><span class="camera-symbol" aria-hidden="true"></span>צילום ארוחה</button>
     <button id="manualButton" class="secondary"><span class="search-symbol" aria-hidden="true"></span>חיפוש מזון</button>
-    <button type="button" id="voiceMealButton" class="secondary">רישום בקול</button>
+    <button type="button" id="voiceMealButton" class="secondary"><span class="voice-symbol" aria-hidden="true"></span>רישום בקול</button>
+    <button type="button" id="homeBarcodeButton" class="secondary"><span class="barcode-symbol" aria-hidden="true"></span>צילום ברקוד</button>
   </div>
   <section class="card" aria-labelledby="miscHeading">
     <div class="row"><h2 id="miscHeading">שונות</h2><button class="quiet header-button" id="miscButton" type="button">הוספת רישום</button></div>
@@ -58,9 +59,10 @@
 <dialog id="settingsDialog" class="goal-dialog" aria-labelledby="goalTitle">
   <div class="dialog-head"><h2 id="goalTitle">היעד שלי</h2><button class="close" data-close="settingsDialog" aria-label="סגירה">×</button></div>
   <form id="settingsForm" novalidate>
+    <p id="goalProgress" class="goal-progress" aria-live="polite"></p>
     <div class="goal-steps">
     <section id="goalIntro" class="goal-step">
-      <img class="goal-illustration" src="measure-yourself.webp" alt="" width="900" height="600">
+      <div class="goal-illustration"><img src="app-icon-192.png?v=apple-1" alt="" width="108" height="108"></div>
       <h3 tabindex="-1">קלוריות ביום, בקצב שלך</h3>
       <p>מצלמים ארוחה או מחפשים במאגר, ורואים מה אכלת ואיך התקדמת היום.</p>
       <p class="hint">בכמה צעדים נציע לך יעד קלוריות, ואפשר יהיה לבחור את שעות הארוחות.</p>
@@ -129,11 +131,10 @@
       <div id="goalManualWeight"><label for="manualWeightInput">משקל בק״ג להערכת פעילות מצעדים</label><input id="manualWeightInput" type="number" inputmode="decimal" min="20" max="350" step="any" placeholder="לבחירתך"></div>
     </section>
     </div>
-    <p id="goalProgress" class="goal-progress" aria-live="polite"></p>
     <p id="goalMessage" class="goal-message" role="status"></p>
     <div class="goal-nav">
       <button type="button" id="goalBack" class="secondary" hidden>חזרה</button>
-      <button type="button" id="goalNext" class="primary">מתחילים <span aria-hidden="true">←</span></button>
+      <button type="button" id="goalNext" class="primary">מתחילים</button>
       <button type="submit" id="saveGoalButton" class="primary" hidden>שמירה ופתיחת היומן</button>
     </div>
     <button type="button" id="skipGoalButton" class="quiet wide">אחר כך, ליומן</button>
