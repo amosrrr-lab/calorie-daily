@@ -121,10 +121,6 @@ let voiceMode = false
 let voiceRecognition
 let voiceTranscript = ''
 let voiceIngredients = []
-// Estimate per 100 g: 80 g stewed thigh meat, 15 g green olives, and 5 g sauce with about 2.5 g oil.
-const cookedChickenWithOlives = ['chicken-olive-stew', 'חלקי עוף מבושל עם זיתים מבושלים', 200, [],
-  'תבשיל עוף זיתים ירוקים עוף וזיתים עוף מבושל בזיתים כרעיים שוקיים ירכיים פרגית',
-  'הערכה לתבשיל ביתי']
 // Estimate includes a small amount of the cooking sauce.
 const cookedMeatballsWithGreens = ['meatballs-oil-greens', 'קציצות מבושלות עם שמן ועלים', 200,
   [['קציצה בינונית', 65]], 'קציצה קציצות בשר קציצה מבושלת קציצות ברוטב עלים ירוקים עשבי תיבול פטרוזיליה כוסברה סלרי',
@@ -134,12 +130,24 @@ const abadiRows = [
   ["manufacturer-abadi-salt","עוגיות מזרחיות מלח, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%9E%D7%9C%D7%97-6/"],
   ["manufacturer-abadi-crispy","עוגיות מזרחיות קריספי, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%A7%D7%A8%D7%99%D7%A1%D7%A4%D7%99/"]
 ]
-const foods = [...foodRows, ...israeliMarketRows, ...abadiRows, ...riceCakeRows, ...soupRows, cookedChickenWithOlives, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
+const foods = [...foodRows, ...israeliMarketRows, ...abadiRows, ...riceCakeRows, ...soupRows, cookedMeatballsWithGreens].map(([id, name, kcal, portions, aliases, sourceName, sourceUrl]) => ({
   id, name:formatRiceCakeSpelling(hotDrinks.get(id)?.[0] ?? name), kcal,
   portions:id === 4803 ? [['אספרסו קצר', 30], ['אספרסו כפול', 60], ['כוס קפה שחור', 130]] : portions ?? [],
   source:sourceName ?? (typeof id === 'string' && id.startsWith('usda-') ? 'USDA' : 'משרד הבריאות'),
   sourceUrl,
   search:normalize([name, aliases, commonSoups.get(id), ...(hotDrinks.get(id) ?? [])].join(' '))
+}))
+const cookedChickenCuts = new Map([
+  ['ירך', 880, 878, 'ירך|ירכי|ירכיים|פרגית|פרגיות'],
+  ['שוק', 856, 855, 'שוק|שוקי|שוקיים'],
+  ['כרעיים (ירך ושוק)', 841, 839, 'כרע|כרעיים'],
+  ['כנפיים', 896, 895, 'כנף|כנפי|כנפיים'],
+  ['חזה', 807, 806, 'חזה|פילה'],
+  ['חלקים מעורבים', 'usda-171451', 'usda-171051', 'מעורב|חלקים מעורבים']
+].flatMap(([cut, withoutSkin, withSkin, aliases]) => {
+  const query = new RegExp('^(?:' + aliases + ')(?: עוף)? מבושל(?:ת|ים|ות)?$')
+  return [[withoutSkin, 'ללא עור'], [withSkin, 'עם עור']].map(([id, skin]) =>
+    [id, {name:'עוף מבושל · ' + cut + ' · ' + skin, query}])
 }))
 const foodsByBarcode = new Map(retailFoods.map(food => [food.barcode, food]))
 foods.push(...retailFoods.map(food => ({...food, search:normalize(food.name + ' ' + food.aliases)})))
@@ -302,6 +310,8 @@ function foldSimilarHebrewLetters(text) {
 function findFoodMatches(name, spoken) {
   const query = normalize(name).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
   if (!query) return []
+  const chicken = cookedChickenMatches(query)
+  if (chicken.length) return chicken
   if (isProductCode(query)) {
     const food = foodByBarcode(query)
     return food ? [{food, exact:true, rank:-1}] : []
@@ -334,6 +344,14 @@ function findFoodMatches(name, spoken) {
   return matches.sort((a, b) => displayRank(a) - displayRank(b)
     || a.food.name.length - b.food.name.length || a.food.name.localeCompare(b.food.name, 'he'))
 }
+function cookedChickenMatches(query) {
+  const allCuts = /^(?:(?:חלקי |בשר )?עוף מבושל(?:ים)?(?: (?:בסיר|במים))?|תבשיל עוף)$/.test(query)
+  return [...cookedChickenCuts].flatMap(([id, {name, query:cutQuery}]) => {
+    if (!allCuts && !cutQuery.test(query)) return []
+    const food = foods.find(food => food.id === id)
+    return [{food:{...food, name, portions:[]}, rank:0, chickenCut:true}]
+  })
+}
 $('appleInstallHelp').hidden = !appleMobile || navigator.standalone === true
   || window.matchMedia('(display-mode: standalone)').matches
 $('appleActivityHint').hidden = !appleMobile
@@ -360,11 +378,12 @@ function updateSearch() {
   }
   if (!normalize(spoken.query)) { clearCatalog(); results.replaceChildren(); return [] }
   const allMatches = findFoodMatches(spoken.query, voiceMode)
+  const chooseChicken = allMatches[0]?.chickenCut
   const matches = showAllFoodMatches(spoken.query, allMatches) ? allMatches : allMatches.slice(0, 18)
-  if (isProductCode(spoken.query) && matches.length) clearCatalog()
+  if (chooseChicken || (isProductCode(spoken.query) && matches.length)) clearCatalog()
   else queueCatalog(spoken.query, !matches.length || isProductCode(spoken.query)
     || voiceMode && !matches.some(entry => entry.exact || entry.similarSound || entry.rank < 5))
-  $('voiceOnlineSingle').hidden = Boolean(bridge?.searchProducts)
+  $('voiceOnlineSingle').hidden = chooseChicken || Boolean(bridge?.searchProducts)
   results.replaceChildren(...(matches.length ? matches.map(({food}) => {
     const row = button(formatRiceCakeSpelling(food.name), 'secondary', () => {
       if (voiceMode) selectSpokenFood(food, spoken)
@@ -505,6 +524,9 @@ function listenForMeal() {
   }
 }
 function foodChoiceMessage(matches) {
+  if (matches[0]?.chickenCut) {
+    return 'בחר את חלק העוף שאכלת, ואז הזן את המשקל ללא עצמות.'
+  }
   if (matches.length && normalize(foodSearchInput().query) === 'פריכיות') {
     return 'נמצאו ' + fmt(matches.length) + ' סוגי פרכיות במאגר. בחר את הסוג שאכלת.'
   }
@@ -517,7 +539,9 @@ function showAllFoodMatches(query, matches) {
   return normalize(query).split(' ').includes('פריכיות') || matches.some(entry => entry.similarSound)
 }
 function requiresFoodChoice(query) {
-  return /^(?:פריכיות(?: דקות)?(?: (?:אורז(?: מלא)?|תירס|כוסמת|חיטה(?: מלאה)?|שיפון|קטניות))?(?: דקות)?|באדי|עבאדי|עוגיות עבאדי)$/.test(normalize(query))
+  const name = normalize(query)
+  return /^(?:פריכיות(?: דקות)?(?: (?:אורז(?: מלא)?|תירס|כוסמת|חיטה(?: מלאה)?|שיפון|קטניות))?(?: דקות)?|באדי|עבאדי|עוגיות עבאדי)$/.test(name)
+    || cookedChickenMatches(name).length > 0
 }
 function voiceMealParts(text) {
   const spoken = parseVoiceFood(text)
@@ -576,7 +600,7 @@ function openVoiceIngredients(parts) {
   voiceIngredients = parts.map(makeVoiceIngredient)
   $('voiceIngredients').replaceChildren(...voiceIngredients.map(row => row.card))
   updateVoiceMealTotal()
-  voiceIngredients.filter(row => !row.candidates.some(food => food.source !== 'USDA'))
+  voiceIngredients.filter(row => !row.chooseChicken && !row.candidates.some(food => food.source !== 'USDA'))
     .forEach(searchVoiceIngredient)
 }
 function makeVoiceIngredient(spoken, index) {
@@ -591,7 +615,8 @@ function makeVoiceIngredient(spoken, index) {
     .map(food => [food.id, food])).values()]
   const product = element('select', '')
   product.id = 'voiceProduct' + index
-  const productLabel = element('label', 'מזון מהמאגר')
+  const chooseChicken = matches[0]?.chickenCut
+  const productLabel = element('label', chooseChicken ? 'חלק העוף' : 'מזון מהמאגר')
   productLabel.htmlFor = product.id
   const quantity = element('input', '')
   Object.assign(quantity, {type:'number', min:'0.01', max:'3000', step:'any', inputMode:'decimal', id:'voiceQuantity' + index})
@@ -603,8 +628,9 @@ function makeVoiceIngredient(spoken, index) {
   const details = element('p', '', 'hint')
   const networkStatus = element('p', '', 'hint')
   networkStatus.setAttribute('role', 'status')
-  const row = {card, spoken, candidates, product, quantity, quantityLabel, unit, details, networkStatus}
+  const row = {card, spoken, candidates, product, quantity, quantityLabel, unit, details, networkStatus, chooseChicken}
   const online = button('חיפוש באינטרנט', 'quiet', () => searchVoiceIngredient(row))
+  online.hidden = chooseChicken
   card.append(productLabel, product, online, networkStatus, quantityLabel, quantity, unit, details)
   setVoiceIngredientOptions(row)
   if (!hasSimilarSpelling && !requiresFoodChoice(spoken.query) && (preferredFood || matches[0]?.exact || matches[0]?.rank < 5)) {
@@ -622,7 +648,7 @@ function makeVoiceIngredient(spoken, index) {
 }
 function setVoiceIngredientOptions(row) {
   const previous = row.product.value
-  row.product.replaceChildren(new Option('בחר תוצאה', ''), ...row.candidates.map(food =>
+  row.product.replaceChildren(new Option(row.chooseChicken ? 'בחר חלק עוף' : 'בחר תוצאה', ''), ...row.candidates.map(food =>
     new Option(formatRiceCakeSpelling(food.name) + ' · ' + fmt(food.kcal) + ' קל׳ ל־100 · ' + food.source, food.id)))
   row.product.value = row.candidates.some(food => String(food.id) === previous) ? previous : ''
 }
@@ -636,8 +662,9 @@ function setVoiceIngredientQuantity(row, refresh = true) {
   row.unit.value = unit || proposed.unit || ''
   row.unit.hidden = !food || Boolean(unit)
   row.quantity.hidden = row.quantityLabel.hidden = !food
-  row.quantityLabel.textContent = unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות לפי היחידה על האריזה'
-  row.quantity.value = proposed.grams ?? ''
+  row.quantityLabel.textContent = row.chooseChicken ? 'משקל בגרמים ללא עצמות'
+    : unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות לפי היחידה על האריזה'
+  if (!row.chooseChicken || !row.quantity.value) row.quantity.value = proposed.grams ?? ''
   row.serving = proposed.serving
   row.estimate = proposed.estimated ? (proposed.portion ?? 'מנה משוערת') : ''
   if (refresh) updateVoiceMealTotal()
@@ -726,7 +753,8 @@ function selectFood(food, savedItem) {
     : savedItem?.grams ?? ($('photoTools').hidden ? 100 : '')
   updateQuantity()
   $('portion').hidden = $('addItem').hidden = false
-  $('addItem').textContent = editingItem === null ? 'הוספת רכיב' : 'עדכון רכיב'
+  $('addItem').textContent = editingItem !== null ? 'עדכון רכיב'
+    : cookedChickenCuts.has(food.id) ? 'הוספת תוספת' : 'הוספת רכיב'
   $('foodSearch').value = ''
   $('voiceOnlineSingle').hidden = true
   $('searchResults').replaceChildren()
@@ -991,6 +1019,7 @@ function updateQuantity() {
   const serving = selectedServing()
   $('quantityLabel').textContent = serving
     ? 'כמה אכלת לפי המידה שנבחרה?'
+    : cookedChickenCuts.has(currentFood.id) ? 'משקל בגרמים ללא עצמות'
     : unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות'
 
   const input = $('grams')
