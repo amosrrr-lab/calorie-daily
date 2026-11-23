@@ -147,7 +147,7 @@ const cookedChickenCuts = new Map([
 ].flatMap(([cut, withoutSkin, withSkin, aliases]) => {
   const query = new RegExp('^(?:' + aliases + ')(?: עוף)? מבושל(?:ת|ים|ות)?$')
   return [[withoutSkin, 'ללא עור'], [withSkin, 'עם עור']].map(([id, skin]) =>
-    [id, {name:'עוף מבושל · ' + cut + ' · ' + skin, query}])
+    [id, {name:'עוף מבושל · ' + cut + ' · ' + skin, cut, skin, query}])
 }))
 const foodsByBarcode = new Map(retailFoods.map(food => [food.barcode, food]))
 foods.push(...retailFoods.map(food => ({...food, search:normalize(food.name + ' ' + food.aliases)})))
@@ -186,6 +186,7 @@ function render() {
   const hasTarget = Boolean(state.target)
   $('goalEmpty').hidden = hasTarget
   $('balanceReadout').hidden = !hasTarget
+  $('balanceProgress').hidden = !hasTarget
   $('targetStat').hidden = !hasTarget
   $('targetTotal').textContent = hasTarget ? fmt(state.target) : '—'
   $('eaten').textContent = fmt(eaten)
@@ -370,6 +371,7 @@ function foodSearchInput() {
 function updateSearch() {
   const spoken = foodSearchInput()
   const results = $('searchResults')
+  results.classList.remove('chicken-options')
   $('voiceOnlineSingle').hidden = true
   if (voiceMode && voiceMealParts($('foodSearch').value).length > 1) {
     results.replaceChildren()
@@ -384,11 +386,13 @@ function updateSearch() {
   else queueCatalog(spoken.query, !matches.length || isProductCode(spoken.query)
     || voiceMode && !matches.some(entry => entry.exact || entry.similarSound || entry.rank < 5))
   $('voiceOnlineSingle').hidden = chooseChicken || Boolean(bridge?.searchProducts)
+  const selectMatch = food => voiceMode ? selectSpokenFood(food, spoken) : selectFood(food)
+  if (chooseChicken) {
+    renderChickenOptions(results, matches, selectMatch)
+    return matches
+  }
   results.replaceChildren(...(matches.length ? matches.map(({food}) => {
-    const row = button(formatRiceCakeSpelling(food.name), 'secondary', () => {
-      if (voiceMode) selectSpokenFood(food, spoken)
-      else selectFood(food)
-    })
+    const row = button(formatRiceCakeSpelling(food.name), 'secondary', () => selectMatch(food))
     const declared = food.portions.find(portion => Number.isFinite(portion[2]))
     row.append(element('span', food.source + ' · ' + (declared
       ? 'כ־' + fmt(declared[2]) + ' קל׳ ל' + declared[0]
@@ -396,6 +400,23 @@ function updateSearch() {
     return row
   }) : [element('p', 'אין תוצאות. אפשר לנסות שם כללי יותר.', 'hint')]))
   return matches
+}
+function renderChickenOptions(results, matches, selectMatch) {
+  const heading = element('p', 'איזה חלק אכלת?', 'chicken-options-title')
+  const cards = new Map()
+  for (const {food} of matches) {
+    const {cut, skin} = cookedChickenCuts.get(food.id)
+    if (!cards.has(cut)) {
+      const card = element('fieldset', '', 'chicken-choice')
+      card.append(element('legend', cut))
+      cards.set(cut, card)
+    }
+    const option = button(skin, 'secondary', () => selectMatch(food))
+    option.setAttribute('aria-label', cut + ', ' + skin)
+    cards.get(cut).append(option)
+  }
+  results.classList.add('chicken-options')
+  results.replaceChildren(heading, ...cards.values())
 }
 function setVoiceStatus(message, phase = 'idle') {
   $('voiceFoodStatus').textContent = message
@@ -648,8 +669,13 @@ function makeVoiceIngredient(spoken, index) {
 }
 function setVoiceIngredientOptions(row) {
   const previous = row.product.value
-  row.product.replaceChildren(new Option(row.chooseChicken ? 'בחר חלק עוף' : 'בחר תוצאה', ''), ...row.candidates.map(food =>
-    new Option(formatRiceCakeSpelling(food.name) + ' · ' + fmt(food.kcal) + ' קל׳ ל־100 · ' + food.source, food.id)))
+  const options = row.candidates.map(food => {
+    const chicken = row.chooseChicken && cookedChickenCuts.get(food.id)
+    const label = chicken ? chicken.cut + ' · ' + chicken.skin
+      : formatRiceCakeSpelling(food.name) + ' · ' + fmt(food.kcal) + ' קל׳ ל־100 · ' + food.source
+    return new Option(label, food.id)
+  })
+  row.product.replaceChildren(new Option(row.chooseChicken ? 'בחר חלק עוף ואם הוא עם עור' : 'בחר תוצאה', ''), ...options)
   row.product.value = row.candidates.some(food => String(food.id) === previous) ? previous : ''
 }
 function chosenVoiceIngredient(row) {
@@ -710,6 +736,7 @@ function updateVoiceMealTotal() {
   })
   const complete = items.every(Boolean)
   const total = $('voiceMealTotal')
+  $('draftMealTotal').hidden = true
   total.hidden = !items.length
   total.textContent = complete ? 'סה״כ משוער לארוחה: ' + fmt(mealCalories({items})) + ' קלוריות'
     : 'יש להשלים את הרכיבים החסרים כדי לחשב את הסך הכולל.'
@@ -770,6 +797,7 @@ function clearSelection() {
   $('quantityUnit').required = false
   $('portion').hidden = $('addItem').hidden = true
   $('saveMeal').disabled = !draft.length
+  renderDraftTotal()
 }
 function searchForFood(query = '') {
   $('foodSearch').value = query
@@ -820,6 +848,16 @@ function renderDraft() {
     return row
   }))
   $('saveMeal').disabled = !draft.length && !currentFood
+  if (currentFood) updateQuantity()
+  else renderDraftTotal()
+}
+function renderDraftTotal(selectedCalories) {
+  const summary = $('draftMealTotal')
+  const items = draft.filter((_, index) => index !== editingItem)
+  summary.hidden = voiceIngredients.length > 0 || (!items.length && selectedCalories === undefined)
+  if (!summary.hidden) {
+    summary.textContent = 'סה״כ לארוחה · ' + fmt(mealCalories({items}) + (selectedCalories ?? 0)) + ' קלוריות'
+  }
 }
 function openFood(withPhoto, meal, focusSearch = true) {
   voiceMode = false
@@ -1028,10 +1066,14 @@ function updateQuantity() {
   input.setCustomValidity(grams > 3000 ? 'הכמות הכוללת לא יכולה לעלות על 3,000 ' + label : '')
   const sugar = $('sugarTeaspoons')
   const sugarTeaspoons = sugar.disabled ? 0 : Number(sugar.value)
-  $('quantitySummary').textContent = unit && input.validity.valid && sugar.validity.valid
+  const calories = unit && input.validity.valid && sugar.validity.valid
+    ? itemCalories({grams, kcal:currentFood.kcal, sugarTeaspoons, serving:serving && {...serving, count}})
+    : undefined
+  $('quantitySummary').textContent = calories !== undefined
     ? (serving ? new Intl.NumberFormat('he-IL', {maximumFractionDigits:3}).format(grams) + ' גרם · ' : '') +
-      fmt(itemCalories({grams, kcal:currentFood.kcal, sugarTeaspoons, serving:serving && {...serving, count}})) + ' קלוריות'
+      fmt(calories) + ' קלוריות'
     : ''
+  renderDraftTotal(calories)
 }
 function clearCatalog() {
   clearTimeout(catalogTimer)
