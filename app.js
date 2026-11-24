@@ -123,7 +123,7 @@ let voiceTranscript = ''
 let voiceIngredients = []
 // Estimate includes a small amount of the cooking sauce.
 const cookedMeatballsWithGreens = ['meatballs-oil-greens', 'קציצות מבושלות עם שמן ועלים', 200,
-  [['קציצה בינונית', 65]], 'קציצה קציצות בשר קציצה מבושלת קציצות ברוטב עלים ירוקים עשבי תיבול פטרוזיליה כוסברה סלרי',
+  [['קציצה בינונית', 65]], 'קציצה קציצות בשר קציצה מבושלת עלים ירוקים עשבי תיבול פטרוזיליה כוסברה סלרי',
   'הערכה לתבשיל ביתי']
 const abadiRows = [
   ["manufacturer-abadi-sesame","עוגיות מזרחיות עם שומשום, עבאדי",452,[],"עוגיות עבאדי עוגיות מלוחות בייגלה עבדי","עבאדי","https://abadibakery.co.il/products/%D7%A2%D7%95%D7%92%D7%99%D7%95%D7%AA-%D7%9E%D7%96%D7%A8%D7%97%D7%99%D7%95%D7%AA-%D7%A2%D7%9D-%D7%A9%D7%95%D7%9E%D7%A9%D7%95%D7%9D/"],
