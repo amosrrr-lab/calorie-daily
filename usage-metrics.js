@@ -1,3 +1,5 @@
+import { initCustomerAccess } from './customer-access.js?v=calorie-access-2'
+
 const projectUrl = 'https://tuaotxsdvhatdwgcurti.supabase.co'
 const publishableKey = 'sb_publishable_Lg-gj43yXfs78IBoNJeuXA_6vZcaNfp'
 const browserStorageKey = 'calorieDailyUsageBrowser'
@@ -97,6 +99,7 @@ const rows = report.querySelector('tbody')
 const signOutButton = panel.querySelector('#usageSignOut')
 let session = readSession()
 let reportRequest = 0
+const commerce = initCustomerAccess({ request, getManagerSession: getSession })
 
 function readSession() {
   try {
@@ -189,6 +192,7 @@ async function loadReport(callbackSession) {
       return row
     }))
     report.hidden = false
+    commerce.managerSignedIn()
     activation.hidden = true
     status.textContent = ''
   } catch (error) {
@@ -278,6 +282,7 @@ adminButton.addEventListener('click', () => {
 signOutButton.addEventListener('click', async () => {
   const current = session
   saveSession(null)
+  commerce.managerSignedOut()
   clearReport()
   if (current) {
     await request('/auth/v1/logout?scope=local', {}, current.token).catch(() => {})

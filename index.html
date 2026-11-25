@@ -1,14 +1,38 @@
 <!doctype html><html lang="he" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f7f5ed"><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png?v=apple-1"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png?v=apple-1"><link rel="stylesheet" href="style.css?v=daily-journal-1"><script type="module" src="app.js?v=meal-search-20261124"></script><script type="module" src="usage-metrics.js?v=install-entry-1"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f7f5ed"><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png?v=apple-1"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png?v=apple-1"><link rel="stylesheet" href="style.css?v=daily-journal-1"><script type="module" src="app.js?v=calorie-access-2"></script><script type="module" src="usage-metrics.js?v=calorie-access-2"></script></head>
 <body><div class="shell">
 <header class="app-header">
   <strong class="brand"><span class="brand-mark" aria-hidden="true"></span>קלוריות ביום</strong>
-  <button id="settingsButton" class="quiet header-button" aria-label="היעד שלי">היעד שלי</button>
+  <button id="settingsButton" hidden class="quiet header-button" aria-label="היעד שלי">היעד שלי</button>
 </header>
 <div class="dashboard" id="installEntry" hidden>
   <button id="usageInstall" class="secondary" type="button" aria-controls="installHelp" aria-expanded="false">התקנת האפליקציה</button>
   <p id="installHelp" class="hint" hidden>אם הגעתם מטיקטוק, פתחו את הדף בדפדפן. בכרום, פתחו את תפריט ⋮ ובחרו ״התקנת אפליקציה״ או ״הוספה למסך הבית״.</p>
 </div>
+<section id="commercialAccess" class="dashboard" aria-labelledby="accessTitle">
+  <h2 id="accessTitle">7 ימי ניסיון חינם</h2>
+  <p id="accessTerms">לאחר הניסיון אפשר להמשיך ל־30 יום ב־19.90 ₪ דרך PayBox. אין חיוב אוטומטי.</p>
+  <form id="accessLogin">
+    <label for="accessEmail">כתובת מייל</label>
+    <input id="accessEmail" type="email" autocomplete="email" required>
+    <label id="accessCodeLabel" for="accessCode" hidden>קוד האימות מהמייל</label>
+    <input id="accessCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" maxlength="8" hidden>
+    <button id="accessLoginButton" class="primary" type="submit">התחלת ניסיון או כניסה</button>
+    <button id="accessChangeEmail" class="quiet" type="button" hidden>שינוי מייל או שליחת קוד חדש</button>
+  </form>
+  <p id="accessStatus" role="status"></p>
+  <button id="accessRetry" class="secondary" type="button" hidden>בדיקה חוזרת</button>
+  <section id="accessPayment" aria-labelledby="accessPaymentTitle" hidden>
+    <h3 id="accessPaymentTitle">הפעלה ל־30 יום</h3>
+    <p>העבירו ב־PayBox ‏19.90 ₪ למספר <bdi>055-2997673</bdi>. כתבו בהערת ההעברה את הקוד <bdi id="accessPaymentCode"></bdi>.</p>
+    <p class="hint">הגישה תיפתח אחרי שנאשר ידנית שההעברה התקבלה.</p>
+    <form id="accessPaymentForm">
+      <label for="accessPayer">שם השולח כפי שמופיע ב־PayBox</label>
+      <input id="accessPayer" minlength="2" maxlength="80" required>
+      <button class="primary" type="submit">העברתי את התשלום</button>
+    </form>
+  </section>
+</section>
 <dialog id="usageAdmin" aria-labelledby="usageTitle">
   <div class="dialog-head">
     <h2 id="usageTitle">נתוני שימוש</h2>
@@ -29,10 +53,17 @@
       <thead><tr><th scope="col">תאריך</th><th scope="col">כניסות</th><th scope="col">דפדפנים ייחודיים ליום</th><th scope="col">לחיצות התקנה</th><th scope="col">התקנות שזוהו בדפדפן</th></tr></thead>
       <tbody></tbody>
     </table></div>
+    <section id="accessManagerPayments" aria-labelledby="accessManagerTitle" hidden>
+      <h3 id="accessManagerTitle">בקשות אישור תשלום ב־PayBox</h3>
+      <p class="hint">לפני אישור, בדוק ב־PayBox שהתקבלו 19.90 ₪ מהשולח ושקוד התשלום תואם.</p>
+      <p id="accessManagerStatus" role="status"></p>
+      <ul id="accessManagerList"></ul>
+      <button id="accessManagerRefresh" class="secondary" type="button">עדכון בקשות</button>
+    </section>
     <button id="usageSignOut" class="quiet" type="button">יציאה מחשבון המנהל</button>
   </div>
 </dialog>
-<main class="dashboard">
+<main id="commercialJournal" class="dashboard" hidden inert>
   <div class="intro"><div><p id="date"></p><h1>היום שלי</h1></div><button class="quiet header-button" id="historyButton">יומן קודם</button></div>
   <section class="balance" aria-label="קלוריות היום">
     <div class="balance-content">

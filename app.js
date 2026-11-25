@@ -1735,4 +1735,11 @@ setInterval(() => {
 }, 60000)
 render()
 if (bridge) { bridge.setWeight(state.weight ?? 0); resume() }
-if (!state.target && !state.onboardingSeen) openGoal()
+function showInitialGoal() {
+  if (!state.target && !state.onboardingSeen && !document.querySelector('dialog[open]')) openGoal()
+}
+if ($('commercialJournal')?.hidden) {
+  document.addEventListener('calorie-access-ready', showInitialGoal, { once: true })
+} else {
+  showInitialGoal()
+}
