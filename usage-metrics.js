@@ -2,16 +2,22 @@ const projectUrl = 'https://tuaotxsdvhatdwgcurti.supabase.co'
 const publishableKey = 'sb_publishable_Lg-gj43yXfs78IBoNJeuXA_6vZcaNfp'
 const browserStorageKey = 'calorieDailyUsageBrowser'
 const managerStorageKey = 'calorieDailyManagerSession'
-const authResult = new URLSearchParams(location.hash.slice(1))
-const hasAuthResult = authResult.has('access_token') || authResult.has('error_code')
-const adminMode = hasAuthResult || new URLSearchParams(location.search).has('usage-admin')
+const oauthVerifierKey = 'calorieDailyGitHubVerifier'
+const returnUrl = 'https://amosrrr-lab.github.io/calorie-daily/'
+const callbackUrl = new URL(location.href)
+const authResult = new URLSearchParams(callbackUrl.hash.slice(1))
+const authCode = callbackUrl.searchParams.get('code')
+const hasAuthResult = Boolean(authCode) || authResult.has('access_token')
+  || authResult.has('error_code') || callbackUrl.searchParams.has('error_code')
+const adminMode = hasAuthResult || callbackUrl.searchParams.has('usage-admin')
 const returnedToken = authResult.get('access_token')
 const returnedRefreshToken = authResult.get('refresh_token')
 if (hasAuthResult) {
-  const url = new URL(location.href)
-  url.hash = ''
-  url.searchParams.delete('usage-admin')
-  history.replaceState(null, '', url)
+  callbackUrl.hash = ''
+  for (const param of ['code', 'error', 'error_code', 'error_description', 'usage-admin']) {
+    callbackUrl.searchParams.delete(param)
+  }
+  history.replaceState(null, '', callbackUrl)
 }
 
 async function request(path, payload, token) {
@@ -73,6 +79,7 @@ if (!adminMode) record('open')
 const panel = document.querySelector('#usageAdmin')
 const adminButton = document.querySelector('#usageAdminButton')
 const activation = panel.querySelector('#usageActivation')
+const githubButton = panel.querySelector('#usageGitHubSignIn')
 const status = panel.querySelector('[role="status"]')
 const report = panel.querySelector('#usageReport')
 const period = report.querySelector('select')
@@ -191,7 +198,58 @@ function openAdmin(callbackSession) {
   void loadReport(callbackSession)
 }
 
-adminButton.addEventListener('click', () => openAdmin())
+function base64Url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+async function signInWithGitHub() {
+  githubButton.disabled = true
+  status.textContent = 'פותח כניסה דרך GitHub…'
+  try {
+    const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)))
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+    localStorage.setItem(oauthVerifierKey, verifier)
+    const redirect = new URL('/auth/v1/authorize', projectUrl)
+    redirect.search = new URLSearchParams({
+      provider: 'github',
+      redirect_to: returnUrl,
+      scopes: 'user:email',
+      code_challenge: base64Url(new Uint8Array(digest)),
+      code_challenge_method: 's256',
+    })
+    location.assign(redirect)
+  } catch {
+    status.textContent = 'לא ניתן לפתוח כניסה דרך GitHub כרגע.'
+    githubButton.disabled = false
+  }
+}
+
+async function finishGitHubSignIn() {
+  if (!panel.open) panel.showModal()
+  activation.hidden = true
+  status.textContent = 'בודק הרשאת מנהל…'
+  try {
+    const verifier = localStorage.getItem(oauthVerifierKey)
+    if (!verifier) throw new Error('Missing sign-in verifier')
+    localStorage.removeItem(oauthVerifierKey)
+    const result = await request('/auth/v1/token?grant_type=pkce', {
+      auth_code: authCode,
+      code_verifier: verifier,
+    })
+    await loadReport(makeSession(result.access_token, result.refresh_token, result.expires_in))
+  } catch {
+    clearReport('לא ניתן להשלים את הכניסה. אפשר לנסות שוב דרך GitHub.')
+  }
+}
+
+adminButton.addEventListener('click', () => {
+  if (session) openAdmin()
+  else {
+    if (!panel.open) panel.showModal()
+    void signInWithGitHub()
+  }
+})
+githubButton.addEventListener('click', signInWithGitHub)
 signOutButton.addEventListener('click', async () => {
   const current = session
   saveSession(null)
@@ -211,11 +269,15 @@ window.addEventListener('storage', event => {
 })
 
 if (adminMode) {
-  if (returnedToken) {
+  if (authCode) {
+    void finishGitHubSignIn()
+  } else if (returnedToken) {
     openAdmin(makeSession(returnedToken, returnedRefreshToken,
       authResult.get('expires_in'), authResult.get('expires_at')))
+  } else if (hasAuthResult) {
+    if (!panel.open) panel.showModal()
+    clearReport('הכניסה דרך GitHub לא הושלמה.')
   } else {
     openAdmin()
-    if (hasAuthResult) status.textContent = 'קישור ההפעלה פג או אינו תקין.'
   }
 }
