@@ -49,28 +49,38 @@ function record(eventName) {
   }
 }
 
+const installEntry = document.querySelector('#installEntry')
 const installButton = document.querySelector('#usageInstall')
+const installHelp = document.querySelector('#installHelp')
 let installPrompt
+installEntry.hidden = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true
+
 window.addEventListener('beforeinstallprompt', event => {
   event.preventDefault()
   installPrompt = event
-  installButton.hidden = false
 })
+function showInstallHelp(expanded) {
+  installHelp.hidden = !expanded
+  installButton.setAttribute('aria-expanded', String(expanded))
+}
 installButton.addEventListener('click', async () => {
-  if (!installPrompt) return
+  if (!installPrompt) {
+    showInstallHelp(installHelp.hidden)
+    return
+  }
   const prompt = installPrompt
   installPrompt = null
-  installButton.hidden = true
   record('install_click')
   try {
     await prompt.prompt()
   } catch {
-    // The browser may cancel the prompt before opening.
+    showInstallHelp(true)
   }
 })
 window.addEventListener('appinstalled', () => {
   installPrompt = null
-  installButton.hidden = true
+  installEntry.hidden = true
+  showInstallHelp(false)
   record('installed')
 })
 
