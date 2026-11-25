@@ -202,27 +202,42 @@ function base64Url(bytes) {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-async function signInWithGitHub() {
-  githubButton.disabled = true
-  status.textContent = 'פותח כניסה דרך GitHub…'
-  try {
-    const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)))
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
-    localStorage.setItem(oauthVerifierKey, verifier)
-    const redirect = new URL('/auth/v1/authorize', projectUrl)
-    redirect.search = new URLSearchParams({
-      provider: 'github',
-      redirect_to: returnUrl,
-      scopes: 'user:email',
-      code_challenge: base64Url(new Uint8Array(digest)),
-      code_challenge_method: 's256',
-    })
-    location.assign(redirect)
-  } catch {
-    status.textContent = 'לא ניתן לפתוח כניסה דרך GitHub כרגע.'
-    githubButton.disabled = false
-  }
+async function prepareGitHubSignIn() {
+  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)))
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+  const redirect = new URL('/auth/v1/authorize', projectUrl)
+  redirect.search = new URLSearchParams({
+    provider: 'github',
+    redirect_to: returnUrl,
+    scopes: 'user:email',
+    code_challenge: base64Url(new Uint8Array(digest)),
+    code_challenge_method: 's256',
+  })
+  githubButton.href = redirect.href
+  githubButton.removeAttribute('aria-disabled')
+  return verifier
 }
+
+let githubVerifier
+void prepareGitHubSignIn().then(verifier => {
+  githubVerifier = verifier
+}).catch(() => {
+  status.textContent = 'לא ניתן להכין כניסה דרך GitHub בדפדפן הזה.'
+})
+
+githubButton.addEventListener('click', event => {
+  if (!githubVerifier) {
+    event.preventDefault()
+    return
+  }
+  try {
+    localStorage.setItem(oauthVerifierKey, githubVerifier)
+    status.textContent = 'השלם את הכניסה בחלון GitHub וחזור ל״קלוריות ביום״.'
+  } catch {
+    event.preventDefault()
+    status.textContent = 'לא ניתן לשמור את הכניסה בדפדפן הזה.'
+  }
+})
 
 async function finishGitHubSignIn() {
   if (!panel.open) panel.showModal()
@@ -243,13 +258,13 @@ async function finishGitHubSignIn() {
 }
 
 adminButton.addEventListener('click', () => {
+  if (!session) session = readSession()
   if (session) openAdmin()
   else {
     if (!panel.open) panel.showModal()
-    void signInWithGitHub()
+    if (githubVerifier) githubButton.click()
   }
 })
-githubButton.addEventListener('click', signInWithGitHub)
 signOutButton.addEventListener('click', async () => {
   const current = session
   saveSession(null)
@@ -259,13 +274,19 @@ signOutButton.addEventListener('click', async () => {
   }
 })
 period.addEventListener('change', () => { void loadReport() })
-window.addEventListener('storage', event => {
-  if (event.key !== managerStorageKey && event.key !== null) return
+function syncManagerSession() {
   const next = readSession()
-  const changed = next?.token !== session?.token
+  if (next?.token === session?.token) return
   session = next
   if (!session) clearReport()
-  else if (panel.open && changed) void loadReport()
+  else if (panel.open) void loadReport()
+}
+
+window.addEventListener('storage', event => {
+  if (event.key === managerStorageKey || event.key === null) syncManagerSession()
+})
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') syncManagerSession()
 })
 
 if (adminMode) {
