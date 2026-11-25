@@ -6,6 +6,7 @@ const authResult = new URLSearchParams(location.hash.slice(1))
 const hasAuthResult = authResult.has('access_token') || authResult.has('error_code')
 const adminMode = hasAuthResult || new URLSearchParams(location.search).has('usage-admin')
 const returnedToken = authResult.get('access_token')
+const returnedRefreshToken = authResult.get('refresh_token')
 if (hasAuthResult) {
   const url = new URL(location.href)
   url.hash = ''
@@ -71,22 +72,19 @@ if (!adminMode) record('open')
 
 const panel = document.querySelector('#usageAdmin')
 const adminButton = document.querySelector('#usageAdminButton')
-const login = panel.querySelector('form')
-const email = login.querySelector('[name="email"]')
-const submit = login.querySelector('button')
+const activation = panel.querySelector('#usageActivation')
 const status = panel.querySelector('[role="status"]')
 const report = panel.querySelector('#usageReport')
 const period = report.querySelector('select')
 const rows = report.querySelector('tbody')
 const signOutButton = panel.querySelector('#usageSignOut')
 let session = readSession()
-let expiryTimer
 let reportRequest = 0
 
 function readSession() {
   try {
     const stored = JSON.parse(localStorage.getItem(managerStorageKey))
-    if (stored?.token && stored.expiresAt > Date.now()) return stored
+    if (stored?.token && Number.isFinite(stored.expiresAt)) return stored
   } catch {
     // The app still works when browser storage is unavailable.
   }
@@ -101,43 +99,70 @@ function saveSession(next) {
   } catch {
     // Continue with the current window's session when storage is unavailable.
   }
-  updateAdminButton()
 }
 
 function clearReport(message = '') {
   reportRequest++
   rows.replaceChildren()
   report.hidden = true
-  login.hidden = false
+  activation.hidden = false
   status.textContent = message
 }
 
-function updateAdminButton() {
-  adminButton.textContent = session ? 'נתוני שימוש' : 'כניסת מנהל'
-  clearTimeout(expiryTimer)
-  if (session) {
-    expiryTimer = setTimeout(() => {
-      saveSession(null)
-      clearReport('פג תוקף הכניסה. אפשר לבקש קישור חדש.')
-    }, Math.max(0, session.expiresAt - Date.now()))
-  }
+function makeSession(token, refreshToken, expiresIn, expiresAt) {
+  const relativeExpiry = Date.now() + (Number(expiresIn) || 3600) * 1000
+  return { token, refreshToken, expiresAt: Number(expiresAt) * 1000 || relativeExpiry }
 }
 
-async function loadReport(token) {
+async function getSession() {
+  async function renewIfNeeded() {
+    const current = readSession() ?? session
+    if (!current) return null
+    if (current.expiresAt > Date.now() + 30_000) return current
+    if (!current.refreshToken) {
+      saveSession(null)
+      return null
+    }
+    try {
+      const result = await request('/auth/v1/token?grant_type=refresh_token', {
+        refresh_token: current.refreshToken,
+      })
+      const latest = readSession() ?? session
+      if (latest?.token !== current.token) return latest
+      const renewed = makeSession(result.access_token, result.refresh_token, result.expires_in)
+      saveSession(renewed)
+      return renewed
+    } catch (error) {
+      const latest = readSession() ?? session
+      if (latest?.token !== current.token) return latest
+      if (!['400', '401', '403'].includes(error.message)) throw error
+      saveSession(null)
+      return null
+    }
+  }
+
+  // Chromium shares storage across the installed app and browser tabs.
+  return navigator.locks
+    ? navigator.locks.request(managerStorageKey, renewIfNeeded)
+    : renewIfNeeded()
+}
+
+async function loadReport(callbackSession) {
   const requestId = ++reportRequest
   status.textContent = 'טוען נתוני שימוש…'
+  let activeSession
   try {
+    activeSession = callbackSession ?? await getSession()
+    if (requestId !== reportRequest) return
+    if (!activeSession) {
+      clearReport()
+      return
+    }
     const data = await request('/rest/v1/rpc/calorie_usage_summary', {
       days: Number(period.value),
-    }, token)
+    }, activeSession.token)
     if (requestId !== reportRequest) return
-    if (session?.token !== token) {
-      const expiresAt = Number(authResult.get('expires_at')) * 1000
-      const duration = Number(authResult.get('expires_in')) * 1000
-      const fallback = duration > 0 ? Date.now() + duration : Date.now() + 60 * 60 * 1000
-      const deadline = Math.min(expiresAt > 0 ? expiresAt : fallback, Date.now() + 60 * 60 * 1000)
-      if (deadline > Date.now()) saveSession({ token, expiresAt: deadline })
-    }
+    if (callbackSession) saveSession(callbackSession)
     rows.replaceChildren(...data.map(entry => {
       const row = document.createElement('tr')
       for (const value of [entry.day, entry.opens, entry.browsers, entry.install_clicks, entry.installs]) {
@@ -147,62 +172,50 @@ async function loadReport(token) {
       return row
     }))
     report.hidden = false
-    login.hidden = true
+    activation.hidden = true
     status.textContent = ''
   } catch (error) {
     if (requestId !== reportRequest) return
-    if (error.message === '401' || error.message === '403') {
-      if (session?.token === token) saveSession(null)
-      clearReport('אין גישה לנתוני השימוש. היכנס שוב עם מייל המנהל.')
+    if (['401', '403'].includes(error.message)) {
+      if (session && session.token === activeSession?.token) saveSession(null)
+      clearReport('הכניסה פגה או שאין לחשבון הרשאת מנהל.')
     } else {
       status.textContent = 'לא ניתן לטעון את הנתונים כרגע. אפשר לסגור ולפתוח שוב.'
     }
   }
 }
 
-function openAdmin() {
+function openAdmin(callbackSession) {
   if (!panel.open) panel.showModal()
-  if (session?.expiresAt <= Date.now()) saveSession(null)
-  if (session) void loadReport(session.token)
-  else email.focus()
+  if (callbackSession || session) activation.hidden = true
+  void loadReport(callbackSession)
 }
 
-adminButton.addEventListener('click', openAdmin)
-signOutButton.addEventListener('click', () => {
+adminButton.addEventListener('click', () => openAdmin())
+signOutButton.addEventListener('click', async () => {
+  const current = session
   saveSession(null)
   clearReport()
-  email.focus()
-})
-period.addEventListener('change', () => {
-  if (session) void loadReport(session.token)
-})
-window.addEventListener('storage', event => {
-  if (event.key !== managerStorageKey && event.key !== null) return
-  session = readSession()
-  updateAdminButton()
-  if (!session) clearReport()
-  else if (panel.open) void loadReport(session.token)
-})
-login.addEventListener('submit', async event => {
-  event.preventDefault()
-  submit.disabled = true
-  try {
-    await request('/auth/v1/otp', { email: email.value.trim(), create_user: true })
-    status.textContent = 'פתח את קישור הכניסה שנשלח אליך במייל.'
-  } catch {
-    status.textContent = 'לא ניתן לשלוח קישור כניסה. בדוק את כתובת המייל ונסה שוב.'
-  } finally {
-    submit.disabled = false
+  if (current) {
+    await request('/auth/v1/logout?scope=local', {}, current.token).catch(() => {})
   }
 })
+period.addEventListener('change', () => { void loadReport() })
+window.addEventListener('storage', event => {
+  if (event.key !== managerStorageKey && event.key !== null) return
+  const next = readSession()
+  const changed = next?.token !== session?.token
+  session = next
+  if (!session) clearReport()
+  else if (panel.open && changed) void loadReport()
+})
 
-updateAdminButton()
 if (adminMode) {
   if (returnedToken) {
-    panel.showModal()
-    void loadReport(returnedToken)
+    openAdmin(makeSession(returnedToken, returnedRefreshToken,
+      authResult.get('expires_in'), authResult.get('expires_at')))
   } else {
     openAdmin()
-    if (hasAuthResult) status.textContent = 'קישור הכניסה פג או אינו תקין. בקש קישור חדש.'
+    if (hasAuthResult) status.textContent = 'קישור ההפעלה פג או אינו תקין.'
   }
 }
