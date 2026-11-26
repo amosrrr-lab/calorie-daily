@@ -1,6 +1,13 @@
 let sequence = 0
 const pending = new Map()
 
+export function withKnownServing(food) {
+  const code = (food.barcode ?? String(food.id).replace(/^off-/, '')).replace(/^0+/, '')
+  if (food.source !== 'Open Food Facts' || code !== '7290004132170' || food.unit === 'ml'
+    || food.portions?.some(([name, size]) => name !== 'אריזה שלמה' || size !== 150)) return food
+  return {...food, unit:'g', portions:[['גביע', 150]]}
+}
+
 export function catalogFood(product) {
   const code = String(product.code ?? '').trim()
   const name = product.product_name_he || product.product_name || product.product_name_en
@@ -18,10 +25,10 @@ export function catalogFood(product) {
   const size = pack ? Number(pack[1].replace(',', '.')) : 0
   const unit = ['g', 'ml'].includes(product.product_quantity_unit) ? product.product_quantity_unit : packUnit || null
   const portions = unit === packUnit && size > 0 && size <= 3000 ? [['אריזה שלמה', size]] : []
-  return {
-    id:'off-' + code, name:displayName, kcal, portions, unit,
+  return withKnownServing({
+    id:'off-' + code, barcode:code, name:displayName, kcal, portions, unit,
     source:'Open Food Facts', sourceUrl:'https://world.openfoodfacts.org/product/' + encodeURIComponent(code)
-  }
+  })
 }
 
 export function searchCatalog(query, page, signal) {

@@ -2,7 +2,7 @@ import foodRows from './foods-data.js'
 import riceCakeRows from './rice-cake-foods.js?v=1'
 import israeliMarketRows from './israeli-market-foods.js?v=1'
 import {soupRows, commonSoups} from './soups-data.js'
-import {searchCatalog} from './catalog.js?v=serving-units-1'
+import {searchCatalog, withKnownServing} from './catalog.js?v=serving-cup-1'
 import {isProductCode} from './barcode.js?v=1'
 import {retailFoods} from './retail-foods.js?v=serving-units-1'
 import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=serving-units-1'
@@ -151,8 +151,11 @@ const cookedChickenCuts = new Map([
 }))
 const foodsByBarcode = new Map(retailFoods.map(food => [food.barcode, food]))
 foods.push(...retailFoods.map(food => ({...food, search:normalize(food.name + ' ' + food.aliases)})))
-for (const personal of [...(state.customFoods ?? []), ...(state.externalFoods ?? [])]) {
-  if (personal.barcode) foodsByBarcode.set(personal.barcode, personal)
+for (const savedFood of [...(state.externalFoods ?? []), ...(state.customFoods ?? [])]) {
+  const personal = withKnownServing(savedFood)
+  if (personal.barcode && (personal.source === 'הזנה שלי' || !foodsByBarcode.has(personal.barcode))) {
+    foodsByBarcode.set(personal.barcode, personal)
+  }
   foods.push({...personal, search:normalize(personal.name)})
 }
 const similarSoundNames = new Set(foods.flatMap(food => voiceFoodNames(food).map(name => foldSimilarHebrewLetters(normalize(name)))))
@@ -325,6 +328,9 @@ function findFoodMatches(name, spoken) {
     && /[אעהחכך]/.test(query) ? ' ' + foldSimilarHebrewLetters(query) + ' ' : ''
   const matches = []
   for (const food of foods) {
+    const barcode = food.barcode ?? (String(food.id).startsWith('off-') ? food.id.slice(4) : '')
+    const preferred = barcode && foodsByBarcode.get(barcode)
+    if (food.source !== 'הזנה שלי' && preferred?.source === 'הזנה שלי') continue
     if (abadi && !food.search.split(' ').includes('עבאדי')) continue
     const exact = spoken && matchesVoiceFood(food, query, normalize)
     if (exact || (query === 'משקאות חמים'
@@ -647,13 +653,15 @@ function makeVoiceIngredient(spoken, index) {
   const unit = element('select', '')
   unit.setAttribute('aria-label', 'יחידת מידה עבור ' + spoken.query)
   unit.append(new Option('בחר גרם או מ״ל', ''), new Option('גרם', 'g'), new Option('מ״ל', 'ml'))
+  const serving = element('select', '')
+  serving.setAttribute('aria-label', 'יחידת מנה עבור ' + spoken.query)
   const details = element('p', '', 'hint')
   const networkStatus = element('p', '', 'hint')
   networkStatus.setAttribute('role', 'status')
-  const row = {card, spoken, candidates, product, quantity, quantityLabel, unit, details, networkStatus, chooseChicken}
+  const row = {card, spoken, candidates, product, quantity, quantityLabel, unit, serving, details, networkStatus, chooseChicken}
   const online = button('חיפוש באינטרנט', 'quiet', () => searchVoiceIngredient(row))
   online.hidden = chooseChicken
-  card.append(productLabel, product, online, networkStatus, quantityLabel, quantity, unit, details)
+  card.append(productLabel, product, online, networkStatus, unit, serving, quantityLabel, quantity, details)
   setVoiceIngredientOptions(row)
   if (!hasSimilarSpelling && !requiresFoodChoice(spoken.query) && (preferredFood || matches[0]?.exact || matches[0]?.rank < 5)) {
     product.value = String(candidates[0].id)
@@ -661,11 +669,16 @@ function makeVoiceIngredient(spoken, index) {
   product.addEventListener('change', () => setVoiceIngredientQuantity(row))
   quantity.addEventListener('input', () => {
     row.estimate = ''
-    row.serving = undefined
     updateVoiceMealTotal()
   })
   unit.addEventListener('change', () => {
-    row.serving = undefined
+    setVoiceQuantityLabel(row)
+    updateVoiceMealTotal()
+  })
+  serving.addEventListener('change', () => {
+    row.estimate = ''
+    row.quantity.value = serving.value ? 1 : ''
+    setVoiceQuantityLabel(row)
     updateVoiceMealTotal()
   })
   setVoiceIngredientQuantity(row, false)
@@ -692,12 +705,25 @@ function setVoiceIngredientQuantity(row, refresh = true) {
   row.unit.value = unit || proposed.unit || ''
   row.unit.hidden = !food || Boolean(unit)
   row.quantity.hidden = row.quantityLabel.hidden = !food
-  row.quantityLabel.textContent = row.chooseChicken ? 'משקל בגרמים ללא עצמות'
-    : unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות לפי היחידה על האריזה'
-  if (!row.chooseChicken || !row.quantity.value) row.quantity.value = proposed.grams ?? ''
-  row.serving = proposed.serving
+  const portions = unit && !row.chooseChicken ? food.portions : []
+  const options = servingOptionsFor(portions, unit)
+  row.serving.replaceChildren(new Option(unit === 'ml' ? 'מ״ל' : 'גרם', ''), ...options)
+  row.serving.hidden = !options.length
+  const spokenMeasure = options.find(option => option.dataset.name === proposed.serving?.name
+    && Number(option.dataset.grams) === proposed.serving.grams)
+  row.serving.value = spokenMeasure?.value ?? ''
+  if (!row.chooseChicken || !row.quantity.value) {
+    row.quantity.value = spokenMeasure ? proposed.serving.count : proposed.grams ?? ''
+  }
+  setVoiceQuantityLabel(row)
   row.estimate = proposed.estimated ? (proposed.portion ?? 'מנה משוערת') : ''
   if (refresh) updateVoiceMealTotal()
+}
+function setVoiceQuantityLabel(row) {
+  const unit = row.unit.value
+  row.quantityLabel.textContent = row.chooseChicken ? 'משקל בגרמים ללא עצמות'
+    : row.serving.value ? 'כמות לפי יחידת המנה'
+    : unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות לפי היחידה על האריזה'
 }
 async function searchVoiceIngredient(row) {
   if (row.controller) return
@@ -708,7 +734,7 @@ async function searchVoiceIngredient(row) {
     const {products} = await searchCatalog(row.spoken.query, 1, controller.signal)
     if (controller.signal.aborted) return
     const ids = new Set(row.candidates.map(food => food.id))
-    row.candidates.push(...products.filter(food => !ids.has(food.id)))
+    row.candidates.push(...products.filter(food => !ids.has(food.id) && !hasPersonalBarcode(food)))
     setVoiceIngredientOptions(row)
     if (!row.product.value && products.length) {
       row.product.value = String(products[0].id)
@@ -724,11 +750,13 @@ async function searchVoiceIngredient(row) {
 }
 function voiceIngredientItem(row) {
   const food = chosenVoiceIngredient(row)
-  const grams = row.quantity.valueAsNumber
+  const count = row.quantity.valueAsNumber
+  const serving = selectedServing(row.serving)
+  const grams = serving ? Number((serving.grams * count).toFixed(6)) : count
   const unit = row.unit.value
   if (!food || !unit || !(grams > 0 && grams <= 3000)) return
   const item = {id:food.id, name:formatRiceCakeSpelling(food.name), kcal:food.kcal, grams, unit}
-  if (row.serving) item.serving = row.serving
+  if (serving) item.serving = {...serving, count}
   return item
 }
 function updateVoiceMealTotal() {
@@ -747,10 +775,22 @@ function updateVoiceMealTotal() {
   $('saveMeal').disabled = !complete
 }
 const individualPortion = /^(?:יחידה|גביע(?: |$)|בקבוק(?: |$)|פחית(?: |$))/
+function servingOptionsFor(portions, unit) {
+  return portions.filter(([, size]) => Number.isFinite(size) && size > 0)
+    .map(([name, size, kcal], index) => {
+      const display = /^(גביע|בקבוק|פחית)( |$)/.test(name) ? 'יחידה – ' + name : name
+      const option = new Option(display + ' (' + size + (unit === 'ml' ? ' מ״ל)' : ' גרם)'), String(index))
+      option.dataset.name = name
+      option.dataset.grams = size
+      if (Number.isFinite(kcal)) option.dataset.kcal = kcal
+      return option
+    })
+}
 function selectFood(food, savedItem, preferSingleServing = false) {
   currentFood = {...food, name:formatRiceCakeSpelling(food.name)}
   $('grams').disabled = false
   $('selectedFood').textContent = currentFood.name
+  $('editProductLabel').hidden = !food.barcode && !food.id?.startsWith?.('off-')
   $('drinkSugar').hidden = !acceptsAddedSugar(food.id)
   $('sugarTeaspoons').disabled = $('drinkSugar').hidden
   $('sugarTeaspoons').value = food.sugarTeaspoons ?? ''
@@ -772,16 +812,7 @@ function selectFood(food, savedItem, preferSingleServing = false) {
     portions.push([name, grams, kcal])
   }
   const unit = $('quantityUnit').value
-  const servingOptions = portions
-    .filter(([, grams]) => Number.isFinite(grams) && grams > 0)
-    .map(([name, grams, kcal], index) => {
-      const display = /^(גביע|בקבוק|פחית)( |$)/.test(name) ? 'יחידה – ' + name : name
-      const option = new Option(display + ' (' + grams + (unit === 'ml' ? ' מ״ל)' : ' גרם)'), String(index))
-      option.dataset.name = name
-      option.dataset.grams = grams
-      if (Number.isFinite(kcal)) option.dataset.kcal = kcal
-      return option
-    })
+  const servingOptions = servingOptionsFor(portions, unit)
   $('serving').replaceChildren(new Option('גרם', ''), ...servingOptions)
   const savedOption = servingOptions.find((option) =>
     option.dataset.name === savedItem?.serving?.name &&
@@ -791,8 +822,9 @@ function selectFood(food, savedItem, preferSingleServing = false) {
     ? servingOptions[0] : servingOptions.find(option =>
       /^(גביע|בקבוק|פחית)$/.test(option.dataset.name) ||
       (option.dataset.name === 'יחידה' && option.dataset.kcal !== undefined))
-  $('serving').value = savedOption?.value ?? declaredUnit?.value ?? ''
-  $('grams').value = savedOption ? savedItem.serving.count : declaredUnit ? 1
+  const defaultServing = declaredUnit ?? (!savedItem && food.source === 'הזנה שלי' ? servingOptions[0] : undefined)
+  $('serving').value = savedOption?.value ?? defaultServing?.value ?? ''
+  $('grams').value = savedOption ? savedItem.serving.count : defaultServing ? 1
     : savedItem?.grams ?? ($('photoTools').hidden ? 100 : '')
   updateQuantity()
   $('portion').hidden = $('addItem').hidden = false
@@ -1017,13 +1049,37 @@ $('foodSearch').addEventListener('keydown', (event) => {
 $('catalogMore').addEventListener('click', () => loadCatalog(catalogQuery, catalogPage + 1))
 $('customProductButton').addEventListener('click', () => {
   const query = $('foodSearch').value.trim()
-  customProductBarcode = isProductCode(query) ? query : photoBarcode
-  $('customProductName').value = isProductCode(query) ? '' : query
+  openProductLabel(isProductCode(query) ? query : photoBarcode, {name:isProductCode(query) ? '' : query})
+})
+$('editProductLabel').addEventListener('click', () => {
+  if (currentFood) openProductLabel(currentFood.barcode ?? currentFood.id.replace(/^off-/, ''), currentFood)
+})
+function updateProductSizeLabel() {
+  const unit = $('customProductUnit').value === 'ml' ? 'במ״ל' : 'בגרמים'
+  $('customProductSizeLabel').textContent = 'כמות ביחידה אחת ' + unit + ' (רשות)'
+}
+$('customProductUnit').addEventListener('change', () => {
+  $('customProductSize').value = ''
+  updateProductSizeLabel()
+})
+function openProductLabel(code, food = {}) {
+  customProductBarcode = code
+  const yogurt = /יוגורט|יופלה|מעדן/.test(food.name ?? '')
+  const portion = food.portions?.find(([name]) => /^(יחידה|גביע|בקבוק|פחית|אריזה שלמה)$/.test(name))
+  $('customProductTitle').textContent = food.id ? 'עדכון פרטי מוצר' : 'פרטי מוצר מהאריזה'
+  $('customProductName').value = food.name ?? ''
   $('customProductBarcode').textContent = customProductBarcode ? 'ברקוד ' + customProductBarcode : ''
   $('customProductBarcode').hidden = !customProductBarcode
-  $('customProductCalories').value = ''
+  $('customProductCalories').value = food.kcal ?? ''
+  $('customProductUnit').value = food.unit === 'ml' ? 'ml' : 'g'
+  $('customProductSize').value = portion?.[1] ?? ''
+  $('customProductServing').value = portion?.[0] ?? (yogurt ? 'גביע' : 'יחידה')
+  updateProductSizeLabel()
   $('customProductDialog').showModal()
-})
+}
+function hasPersonalBarcode(food) {
+  return foodsByBarcode.get(food.barcode)?.source === 'הזנה שלי'
+}
 $('customProductForm').addEventListener('submit', (event) => {
   event.preventDefault()
   if (!$('customProductForm').reportValidity()) return
@@ -1035,7 +1091,9 @@ $('customProductForm').addEventListener('submit', (event) => {
   const previous = state.customFoods.find(food => customProductBarcode
     ? food.barcode === customProductBarcode
     : !food.barcode && normalize(food.name) === normalize(name) && food.unit === unit)
-  const food = {id:previous?.id ?? 'custom-' + crypto.randomUUID(), name, kcal, unit, portions:[], source:'הזנה שלי'}
+  const size = $('customProductSize').valueAsNumber
+  const portions = Number.isFinite(size) ? [[$('customProductServing').value, size]] : []
+  const food = {id:previous?.id ?? 'custom-' + crypto.randomUUID(), name, kcal, unit, portions, source:'הזנה שלי'}
   if (customProductBarcode) {
     food.barcode = customProductBarcode
     foodsByBarcode.set(food.barcode, food)
@@ -1052,8 +1110,8 @@ $('customProductForm').addEventListener('submit', (event) => {
   selectFood(searchable)
   notify('המוצר נשמר לחיפושים הבאים')
 })
-function selectedServing() {
-  const option = $('serving').selectedOptions[0]
+function selectedServing(select = $('serving')) {
+  const option = select.selectedOptions[0]
   if (option?.dataset.grams) {
     const serving = {name:option.dataset.name, grams:Number(option.dataset.grams)}
     if (option.dataset.kcal !== undefined) serving.kcal = Number(option.dataset.kcal)
@@ -1127,7 +1185,7 @@ async function loadCatalog(query, page) {
     catalogQuery = query
     catalogPage = page
     const ids = new Set(catalogItems.map((food) => food.id))
-    catalogItems.push(...result.products.filter((food) => !ids.has(food.id)))
+    catalogItems.push(...result.products.filter(food => !ids.has(food.id) && !hasPersonalBarcode(food)))
     $('catalogResults').replaceChildren(...catalogItems.map((food) => {
       const row = button(formatRiceCakeSpelling(food.name), 'secondary', () => {
         if (voiceMode) selectSpokenFood(food, foodSearchInput())
@@ -1488,7 +1546,8 @@ async function showBarcodeProduct(code, run) {
     status.textContent = 'נמצא מוצר לפי ברקוד ' + code + '. בחר אותו ובדוק את הכמות.'
     const choice = button(food.name, 'secondary', () => selectFood(food, undefined, true))
     choice.append(element('span', ' · ' + fmt(food.kcal) + ' קלוריות ל־100 ' + (food.unit === 'ml' ? 'מ״ל' : 'גרם')))
-    $('photoCandidates').replaceChildren(choice)
+    $('photoCandidates').replaceChildren(choice, button('פרטי המוצר שונים על האריזה', 'quiet',
+      () => openProductLabel(code, food)))
   } catch {
     if (run !== photoRun) return
     photoBarcode = code
