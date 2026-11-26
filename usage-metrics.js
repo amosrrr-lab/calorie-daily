@@ -54,8 +54,28 @@ function record(eventName) {
 const installEntry = document.querySelector('#installEntry')
 const installButton = document.querySelector('#usageInstall')
 const installHelp = document.querySelector('#installHelp')
+const installInstructions = document.querySelector('#installInstructions')
+const installOpenChrome = document.querySelector('#installOpenChrome')
+const installDirectLink = document.querySelector('#installDirectLink')
+const installCopyStatus = document.querySelector('#installCopyStatus')
+const android = /Android/i.test(navigator.userAgent)
+const appleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 let installPrompt
 installEntry.hidden = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true
+installDirectLink.value = returnUrl
+if (android) {
+  const url = new URL(returnUrl)
+  installOpenChrome.href = 'intent://' + url.host + url.pathname
+    + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url='
+    + encodeURIComponent(returnUrl) + ';end'
+  installOpenChrome.hidden = false
+}
+installInstructions.textContent = android
+  ? 'בכרום, פתחו את התפריט ⋮ ובחרו ״התקנת אפליקציה״ או ״הוספה למסך הבית״. אם הדף נפתח בתוך טיקטוק או אפליקציה אחרת, אפשר לפתוח בכרום או להעתיק את הקישור ולהדביק אותו שם.'
+  : appleMobile
+    ? 'פתחו את הקישור ב־Safari. לחצו על שיתוף ובחרו ״הוספה למסך הבית״.'
+    : 'פתחו את תפריט הדפדפן ובחרו ״התקנת אפליקציה״ אם האפשרות זמינה.'
 
 window.addEventListener('beforeinstallprompt', event => {
   event.preventDefault()
@@ -65,14 +85,25 @@ function showInstallHelp(expanded) {
   installHelp.hidden = !expanded
   installButton.setAttribute('aria-expanded', String(expanded))
 }
+document.querySelector('#installCopyLink').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(returnUrl)
+    installCopyStatus.textContent = 'הקישור הועתק. אפשר להדביק אותו בדפדפן.'
+  } catch {
+    installDirectLink.hidden = false
+    installDirectLink.focus()
+    installDirectLink.select()
+    installCopyStatus.textContent = 'אפשר לסמן ולהעתיק את הקישור שמופיע כאן.'
+  }
+})
 installButton.addEventListener('click', async () => {
+  if (!adminMode) record('install_click')
   if (!installPrompt) {
     showInstallHelp(installHelp.hidden)
     return
   }
   const prompt = installPrompt
   installPrompt = null
-  record('install_click')
   try {
     await prompt.prompt()
   } catch {
@@ -83,7 +114,7 @@ window.addEventListener('appinstalled', () => {
   installPrompt = null
   installEntry.hidden = true
   showInstallHelp(false)
-  record('installed')
+  if (!adminMode) record('installed')
 })
 
 if (!adminMode) record('open')
