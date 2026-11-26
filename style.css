@@ -185,6 +185,68 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .search-symbol { position: relative; width: 14px; height: 14px; flex: none; border: 2px solid currentColor; border-radius: 50%; }
 .search-symbol::after { content: ""; position: absolute; width: 6px; height: 2px; inset: 10px 9px auto auto; background: currentColor; transform: rotate(-45deg); }
 .card { margin-bottom: 9px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 17px; background: var(--paper); }
+.visitor-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, .62fr);
+  align-items: center;
+  gap: clamp(16px, 5vw, 60px);
+  margin-top: 14px;
+  padding: clamp(18px, 5vw, 50px);
+  border-radius: 24px;
+  background: #193e2d;
+  color: #fffaf1;
+}
+.visitor-intro > p { margin-top: 10px; max-width: 42ch; color: #e4efdd; }
+.visitor-trial-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 9px 16px;
+  margin-top: 18px;
+  border-radius: 14px;
+  background: var(--peach);
+  color: #38271e;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+.visitor-trial-link:hover { background: #ffd2a1; }
+.visitor-trial-link:focus-visible { outline-color: #fffaf1; }
+.visitor-intro .visitor-trial-note { margin-top: 7px; font-size: 13px; }
+.visitor-example {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid #ffffff35;
+  border-radius: 20px;
+  background: #ffffff14;
+  text-align: center;
+}
+.visitor-example img { display: block; width: min(100%, 156px); height: auto; border-radius: 50%; }
+.visitor-example strong { display: block; font-size: 42px; line-height: 1; color: #e4f5ba; }
+.visitor-example small { color: #e4efdd; }
+.visitor-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 9px 0 14px; }
+.visitor-features li {
+  display: block;
+  margin: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+}
+.visitor-features p { margin-top: 4px; }
+#commercialAccess { padding: clamp(15px, 3vw, 28px); }
+#accessTitle { scroll-margin-top: 14px; }
+#accessTerms { margin-top: 6px; }
+#accessLogin { max-width: 480px; }
+#accessLoginButton { margin-top: 9px; }
+@media (max-width: 620px) {
+  .visitor-hero, .visitor-features { grid-template-columns: minmax(0, 1fr); }
+  .visitor-trial-link { width: 100%; }
+  .visitor-example { display: none; }
+}
 .journal-card { min-height: 93px; }
 .activity-card { background: #edf0e6; }
 .empty { padding: 12px 0 3px; color: var(--muted); font-size: 14px; }

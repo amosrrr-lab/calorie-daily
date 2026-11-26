@@ -4,6 +4,7 @@ const dateFormat = new Intl.DateTimeFormat('he-IL', { dateStyle: 'medium', timeZ
 export function initCustomerAccess({ request, getManagerSession }) {
   const byId = id => document.getElementById(id)
   const journal = byId('commercialJournal')
+  const visitorLanding = byId('visitorLanding')
   const settings = byId('settingsButton')
   const title = byId('accessTitle')
   const terms = byId('accessTerms')
@@ -91,6 +92,7 @@ export function initCustomerAccess({ request, getManagerSession }) {
 
   function showAccess(access) {
     clearTimeout(expiryTimer)
+    visitorLanding.hidden = Boolean(access)
     login.hidden = Boolean(access)
     setJournalAccess(Boolean(access?.active))
     payment.hidden = access?.state !== 'expired'

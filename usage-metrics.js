@@ -1,4 +1,4 @@
-import { initCustomerAccess } from './customer-access.js?v=calorie-access-2'
+import { initCustomerAccess } from './customer-access.js?v=visitor-landing-1'
 
 const projectUrl = 'https://tuaotxsdvhatdwgcurti.supabase.co'
 const publishableKey = 'sb_publishable_Lg-gj43yXfs78IBoNJeuXA_6vZcaNfp'
