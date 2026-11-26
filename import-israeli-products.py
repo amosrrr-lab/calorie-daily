@@ -45,7 +45,14 @@ def catalog_row(row):
     if not names or energy is None:
         return None
     kcal, unit = energy
-    return [code, names[0], kcal, unit, row.get("brands", "").strip(), " ".join(names[1:])]
+    result = [code, names[0], kcal, unit, row.get("brands", "").strip(), " ".join(names[1:])]
+    pack = re.fullmatch(r"(\d+(?:[.,]\d+)?)\s*(g|ml|גרם|מ[\"״']ל)", row.get("quantity", "").strip(), re.I)
+    if pack:
+        size = float(pack[1].replace(",", "."))
+        pack_unit = "g" if pack[2].lower() in ("g", "גרם") else "ml"
+        if 0 < size <= 3000 and pack_unit == unit:
+            result.append(int(size) if size.is_integer() else size)
+    return result
 
 
 def main():

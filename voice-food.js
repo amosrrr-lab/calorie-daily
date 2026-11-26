@@ -11,13 +11,14 @@ const quantities = new Map([
 const measurements = new Map([
   ['גרם', 'g'], ['גרמים', 'g'], ['מ״ל', 'ml'], ['מיליליטר', 'ml'],
   ['כוס', 'כוס'], ['כוסות', 'כוס'], ['כף', 'כף'], ['כפות', 'כף'],
-  ['כפית', 'כפית'], ['כפיות', 'כפית'], ['פרוסה', 'פרוסה'], ['פרוסות', 'פרוסה'], ['יחידה', 'יחידה'], ['יחידות', 'יחידה']
+  ['כפית', 'כפית'], ['כפיות', 'כפית'], ['פרוסה', 'פרוסה'], ['פרוסות', 'פרוסה'], ['יחידה', 'יחידה'], ['יחידות', 'יחידה'],
+  ['גביע', 'גביע'], ['גביעים', 'גביע'], ['בקבוק', 'בקבוק'], ['בקבוקים', 'בקבוק'], ['פחית', 'פחית'], ['פחיות', 'פחית']
 ])
 const numberPattern = '[0-9]+(?:[.,][0-9]+)?|' + [...quantities.keys()]
   .sort((a, b) => b.length - a.length).join('|')
 const unitPattern = [...measurements.keys()].sort((a, b) => b.length - a.length).join('|')
 const prefix = new RegExp('^(' + numberPattern + ')(?:\\s+(' + unitPattern + '))?\\s+(.+)$')
-const singularMeasure = /^(כוס|כף|כפית|פרוסה|יחידה)\s+(.+)$/
+const singularMeasure = /^(כוס|כף|כפית|פרוסה|יחידה|גביע|בקבוק|פחית)\s+(.+)$/
 const suffix = new RegExp('^(.+?)\\s+(' + numberPattern + ')\\s+(' + unitPattern + ')$')
 
 export function parseVoiceFood(transcript) {
@@ -76,14 +77,16 @@ export function resolveVoiceQuantity(food, {count, unit}, normalize) {
   const base = food.unit ?? (food.source === 'Open Food Facts' ? null : 'g')
   if (count === null || !Number.isFinite(count) || count <= 0 || !base) return
   if (unit === 'g' || unit === 'ml') return unit === base && count <= 3000 ? {grams:count} : undefined
-  if (base !== 'g') return
   const portions = food.portions.filter(([, grams]) => Number.isFinite(grams) && grams > 0)
   const primary = portions.filter(([name]) => normalize(name) === (unit ?? 'יחידה'))
   const medium = portions.filter(([name]) => /^(?:יחידה|קציצה) בינונית$/.test(normalize(name)))
+  const packages = portions.filter(([name]) => /^(גביע|בקבוק|פחית)$/.test(normalize(name)))
   const byUnit = unit && unit !== 'יחידה'
     ? portions.filter(([name]) => normalize(name).startsWith(unit + ' '))
     : portions.filter(([name, grams]) => grams < 1000 && !/^(כוס|כף|כפית|קילוגרם|חבילה|בקבוק|שקית)( |$)/.test(normalize(name)))
-  const candidates = primary.length ? primary : (!unit || unit === 'יחידה') && medium.length ? medium : byUnit
+  const candidates = primary.length ? primary
+    : (!unit || unit === 'יחידה') && medium.length ? medium
+    : (!unit || unit === 'יחידה') && packages.length ? packages : byUnit
   if (candidates.length !== 1) return
   const [name, grams, kcal] = candidates[0]
   if (grams * count <= 3000) {

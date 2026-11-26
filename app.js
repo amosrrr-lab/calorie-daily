@@ -2,10 +2,10 @@ import foodRows from './foods-data.js'
 import riceCakeRows from './rice-cake-foods.js?v=1'
 import israeliMarketRows from './israeli-market-foods.js?v=1'
 import {soupRows, commonSoups} from './soups-data.js'
-import {searchCatalog} from './catalog.js?v=product-scan-1'
+import {searchCatalog} from './catalog.js?v=serving-units-1'
 import {isProductCode} from './barcode.js?v=1'
-import {retailFoods} from './retail-foods.js?v=1'
-import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=food-choices-2'
+import {retailFoods} from './retail-foods.js?v=serving-units-1'
+import {parseVoiceFood, matchesVoiceFood, voiceFoodNames, parseVoiceMeal, voiceIngredientDefault, preferredVoiceIngredient} from './voice-food.js?v=serving-units-1'
 import {connectAppleWorkoutImport} from './apple-workout-import.js?v=1'
 import {connectWebActivity} from './activity-sync.js?v=watch-sources-1'
 import {backupCounts, backupSizeLimit, createBackup, readBackup, restoreBackup} from './journal-backup.js?v=1'
@@ -281,7 +281,8 @@ $('miscForm').addEventListener('submit', (event) => {
   notify('הקלוריות נשמרו בשונות')
 })
 function formatQuantity(item) {
-  const quantity = item.grams + (item.unit === 'ml' ? ' מ״ל' : ' גרם')
+  const amount = item.grams + (item.unit === 'ml' ? ' מ״ל' : ' גרם')
+  const quantity = item.serving ? item.serving.count + ' × ' + item.serving.name + ' (' + amount + ')' : amount
   return item.sugarTeaspoons ? quantity + ' · ' + item.sugarTeaspoons + ' כפ׳ סוכר' : quantity
 }
 function formatRiceCakeSpelling(text) {
@@ -663,7 +664,10 @@ function makeVoiceIngredient(spoken, index) {
     row.serving = undefined
     updateVoiceMealTotal()
   })
-  unit.addEventListener('change', updateVoiceMealTotal)
+  unit.addEventListener('change', () => {
+    row.serving = undefined
+    updateVoiceMealTotal()
+  })
   setVoiceIngredientQuantity(row, false)
   return row
 }
@@ -724,7 +728,7 @@ function voiceIngredientItem(row) {
   const unit = row.unit.value
   if (!food || !unit || !(grams > 0 && grams <= 3000)) return
   const item = {id:food.id, name:formatRiceCakeSpelling(food.name), kcal:food.kcal, grams, unit}
-  if (Number.isFinite(row.serving?.kcal) && unit === 'g') item.serving = row.serving
+  if (row.serving) item.serving = row.serving
   return item
 }
 function updateVoiceMealTotal() {
@@ -742,7 +746,8 @@ function updateVoiceMealTotal() {
     : 'יש להשלים את הרכיבים החסרים כדי לחשב את הסך הכולל.'
   $('saveMeal').disabled = !complete
 }
-function selectFood(food, savedItem) {
+const individualPortion = /^(?:יחידה|גביע(?: |$)|בקבוק(?: |$)|פחית(?: |$))/
+function selectFood(food, savedItem, preferSingleServing = false) {
   currentFood = {...food, name:formatRiceCakeSpelling(food.name)}
   $('grams').disabled = false
   $('selectedFood').textContent = currentFood.name
@@ -760,10 +765,18 @@ function selectFood(food, savedItem) {
     state.externalFoods.push(food)
     persist()
   }
-  const servingOptions = food.portions
+  const portions = [...food.portions]
+  if (savedItem?.serving && !portions.some(([name, size, kcal]) =>
+    name === savedItem.serving.name && size === savedItem.serving.grams && kcal === savedItem.serving.kcal)) {
+    const {name, grams, kcal} = savedItem.serving
+    portions.push([name, grams, kcal])
+  }
+  const unit = $('quantityUnit').value
+  const servingOptions = portions
     .filter(([, grams]) => Number.isFinite(grams) && grams > 0)
     .map(([name, grams, kcal], index) => {
-      const option = new Option(name + ' (' + grams + ' ג׳)', String(index))
+      const display = /^(גביע|בקבוק|פחית)( |$)/.test(name) ? 'יחידה – ' + name : name
+      const option = new Option(display + ' (' + grams + (unit === 'ml' ? ' מ״ל)' : ' גרם)'), String(index))
       option.dataset.name = name
       option.dataset.grams = grams
       if (Number.isFinite(kcal)) option.dataset.kcal = kcal
@@ -772,9 +785,12 @@ function selectFood(food, savedItem) {
   $('serving').replaceChildren(new Option('גרם', ''), ...servingOptions)
   const savedOption = servingOptions.find((option) =>
     option.dataset.name === savedItem?.serving?.name &&
-    Number(option.dataset.grams) === savedItem.serving.grams)
-  const declaredUnit = savedItem ? undefined : servingOptions.find(option =>
-    option.dataset.name === 'יחידה' && option.dataset.kcal !== undefined)
+    Number(option.dataset.grams) === savedItem.serving.grams &&
+    (option.dataset.kcal === undefined ? undefined : Number(option.dataset.kcal)) === savedItem.serving.kcal)
+  const declaredUnit = savedItem ? undefined : preferSingleServing && servingOptions.length === 1
+    ? servingOptions[0] : servingOptions.find(option =>
+      /^(גביע|בקבוק|פחית)$/.test(option.dataset.name) ||
+      (option.dataset.name === 'יחידה' && option.dataset.kcal !== undefined))
   $('serving').value = savedOption?.value ?? declaredUnit?.value ?? ''
   $('grams').value = savedOption ? savedItem.serving.count : declaredUnit ? 1
     : savedItem?.grams ?? ($('photoTools').hidden ? 100 : '')
@@ -895,7 +911,7 @@ function readFoodItem() {
   if (!$('quantityUnit').reportValidity() || !$('sugarTeaspoons').reportValidity()) return
   const sugarTeaspoons = acceptsAddedSugar(id) ? Number($('sugarTeaspoons').value) : 0
   const unit = $('quantityUnit').value || currentFood.unit || 'g'
-  if (currentFood.source === 'Open Food Facts') {
+  if (currentFood.source === 'Open Food Facts' && !currentFood.unit) {
     const saved = state.externalFoods?.find((food) => food.id === id)
     if (saved) saved.unit = unit
     const available = foods.find((food) => food.id === id)
@@ -1051,12 +1067,13 @@ function updateQuantity() {
   $('per100').textContent = fmt(currentFood.kcal) + ' קלוריות ל־100 ' + label
 
   const servingSelect = $('serving')
-  const showServings = unit === 'g' && servingSelect.options.length > 1
+  const showServings = Boolean(unit) && (!currentFood.unit || unit === currentFood.unit) && servingSelect.options.length > 1
+  servingSelect.options[0].textContent = unit === 'ml' ? 'מ״ל' : 'גרם'
   servingSelect.hidden = $('servingLabel').hidden = !showServings
   if (!showServings) servingSelect.value = ''
   const serving = selectedServing()
   $('quantityLabel').textContent = serving
-    ? 'כמה אכלת לפי המידה שנבחרה?'
+    ? (individualPortion.test(serving.name) ? 'מספר יחידות' : 'כמה אכלת לפי המידה שנבחרה?')
     : cookedChickenCuts.has(currentFood.id) ? 'משקל בגרמים ללא עצמות'
     : unit === 'ml' ? 'כמות במ״ל' : unit === 'g' ? 'כמות בגרם' : 'כמות'
 
@@ -1070,7 +1087,7 @@ function updateQuantity() {
     ? itemCalories({grams, kcal:currentFood.kcal, sugarTeaspoons, serving:serving && {...serving, count}})
     : undefined
   $('quantitySummary').textContent = calories !== undefined
-    ? (serving ? new Intl.NumberFormat('he-IL', {maximumFractionDigits:3}).format(grams) + ' גרם · ' : '') +
+    ? (serving ? new Intl.NumberFormat('he-IL', {maximumFractionDigits:3}).format(grams) + ' ' + label + ' · ' : '') +
       fmt(calories) + ' קלוריות'
     : ''
   renderDraftTotal(calories)
@@ -1469,14 +1486,7 @@ async function showBarcodeProduct(code, run) {
       return
     }
     status.textContent = 'נמצא מוצר לפי ברקוד ' + code + '. בחר אותו ובדוק את הכמות.'
-    const choice = button(food.name, 'secondary', () => {
-      selectFood(food)
-      if (food.portions.length === 1) {
-        $('serving').selectedIndex = 1
-        $('grams').value = 1
-        updateQuantity()
-      }
-    })
+    const choice = button(food.name, 'secondary', () => selectFood(food, undefined, true))
     choice.append(element('span', ' · ' + fmt(food.kcal) + ' קלוריות ל־100 ' + (food.unit === 'ml' ? 'מ״ל' : 'גרם')))
     $('photoCandidates').replaceChildren(choice)
   } catch {

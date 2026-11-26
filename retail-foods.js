@@ -1,4 +1,4 @@
-import israeliBarcodeRows from './israeli-barcode-data.js?v=1'
+import israeliBarcodeRows from './israeli-barcode-data.js?v=serving-units-1'
 
 const curatedRows = [
   ['7290004124205', 'יוגורט יופלה דיאט תות 0%, תנובה', 39, 150],
@@ -14,10 +14,11 @@ const curatedRows = [
   ['7290000047621', 'גבינה לבנה תנובה 5%', 98, 250]
 ]
 
-const foodsByCode = new Map(israeliBarcodeRows.map(([barcode, name, kcal, unit, brand, otherNames]) => {
+const foodsByCode = new Map(israeliBarcodeRows.map(([barcode, name, kcal, unit, brand, otherNames, packSize]) => {
   const displayName = brand && !name.toLowerCase().includes(brand.toLowerCase()) ? name + ' · ' + brand : name
   return [barcode, {
-    id:'retail-' + barcode, barcode, name:displayName, kcal, unit, portions:[],
+    id:'retail-' + barcode, barcode, name:displayName, kcal, unit,
+    portions:packSize ? [['אריזה שלמה', packSize]] : [],
     aliases:otherNames, source:'Open Food Facts',
     sourceUrl:'https://world.openfoodfacts.org/product/' + barcode, localCatalog:true
   }]

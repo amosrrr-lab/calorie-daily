@@ -13,9 +13,13 @@ export function catalogFood(product) {
   const brands = Array.isArray(product.brands) ? product.brands.join(', ') : product.brands ?? ''
   const displayName = brands && !name.toLowerCase().includes(String(brands).toLowerCase())
     ? name.trim() + ' · ' + brands : name.trim()
-  const unit = ['g', 'ml'].includes(product.product_quantity_unit) ? product.product_quantity_unit : null
+  const pack = /^(\d+(?:[.,]\d+)?)\s*(g|ml|גרם|מ["״']ל)$/iu.exec(String(product.quantity ?? '').trim())
+  const packUnit = pack && (/^(g|גרם)$/iu.test(pack[2]) ? 'g' : 'ml')
+  const size = pack ? Number(pack[1].replace(',', '.')) : 0
+  const unit = ['g', 'ml'].includes(product.product_quantity_unit) ? product.product_quantity_unit : packUnit || null
+  const portions = unit === packUnit && size > 0 && size <= 3000 ? [['אריזה שלמה', size]] : []
   return {
-    id:'off-' + code, name:displayName, kcal, portions:[], unit,
+    id:'off-' + code, name:displayName, kcal, portions, unit,
     source:'Open Food Facts', sourceUrl:'https://world.openfoodfacts.org/product/' + encodeURIComponent(code)
   }
 }
@@ -54,7 +58,7 @@ async function searchWebCatalog(query, page, signal) {
     : new URL('/cgi/search.pl', 'https://world.openfoodfacts.org')
   url.search = new URLSearchParams({
     search_terms:query, search_simple:1, action:'process', json:1, page, page_size:12,
-    fields:'code,product_name_he,product_name,product_name_en,nutriments,brands,product_quantity_unit'
+    fields:'code,product_name_he,product_name,product_name_en,nutriments,brands,product_quantity_unit,quantity'
   })
   const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000)
   const response = await fetch(url, {signal:requestSignal, credentials:'omit'})
