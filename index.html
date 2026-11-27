@@ -1,5 +1,5 @@
 <!doctype html><html lang="he" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f7f5ed"><meta name="description" content="יומן אוכל בעברית. רושמים ארוחות בקול, סורקים ברקוד ורואים כמה קלוריות נשארו להיום. 7 ימי ניסיון חינם."><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png?v=apple-1"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png?v=apple-1"><link rel="stylesheet" href="style.css?v=visitor-landing-1"><script type="module" src="app.js?v=serving-cup-1"></script><script type="module" src="usage-metrics.js?v=visitor-landing-1"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f7f5ed"><meta name="description" content="יומן אוכל בעברית. רושמים ארוחות בקול, סורקים ברקוד ורואים כמה קלוריות נשארו להיום. 7 ימי ניסיון חינם."><title>קלוריות ביום</title><link rel="apple-touch-icon" href="./app-icon-192.png?v=apple-1"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/png" href="./app-icon-192.png?v=apple-1"><link rel="stylesheet" href="style.css?v=visitor-landing-1"><script type="module" src="app.js?v=photo-meals-1"></script><script type="module" src="usage-metrics.js?v=visitor-landing-1"></script></head>
 <body><div class="shell">
 <header class="app-header">
   <strong class="brand"><span class="brand-mark" aria-hidden="true"></span>קלוריות ביום</strong>
@@ -288,6 +288,13 @@
 <button type="button" id="catalogMore" class="secondary wide" hidden>מוצרים נוספים</button>
 <button type="button" id="customProductButton" class="quiet wide">הוספת מוצר שחסר במאגר</button></div>
 <section id="voiceIngredientSection" aria-label="רכיבי הארוחה" hidden>
+<div id="photoMealFields" hidden>
+  <p class="hint">בדוק את הרכיבים. אפשר להזין משקל לכל הצלחת ולקבל חלוקה משוערת, או להזין גרמים לכל רכיב.</p>
+  <label for="photoMealWeight">משקל הארוחה בגרמים</label>
+  <input type="number" id="photoMealWeight" min="1" max="3000" step="any" inputmode="decimal">
+  <label for="photoMealIngredient">הוספת רכיב חסר</label>
+  <div class="actions"><input type="search" id="photoMealIngredient" maxlength="80" autocomplete="off" placeholder="למשל שמן זית"><button id="photoMealAdd" type="button" class="secondary">הוסף רכיב</button></div>
+</div>
 <div id="voiceIngredients"></div>
 <button type="button" class="quiet" id="voiceEditMeal">עריכת מה שאמרתי</button>
 </section>

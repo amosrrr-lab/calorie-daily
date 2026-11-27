@@ -42,7 +42,25 @@ export async function predict(image) {
   const centered = await recognizeCrop(session, labels, image, false)
   return centered.length ? centered : recognizeCrop(session, labels, image, true)
 }
-async function recognizeCrop(session, labels, image, fullImage) {
+export async function predictPlate(image, stillCurrent = () => true) {
+  const [session, labels] = await load()
+  const width = image.naturalWidth, height = image.naturalHeight
+  const size = Math.min(width, height) * .55
+  const areas = [[.28,.42],[.72,.42],[.28,.72],[.72,.72]]
+  const regions = []
+  for (const [x,y] of areas) {
+    if (!stillCurrent()) break
+    const crop = [
+      Math.min(width - size, Math.max(0, x * width - size / 2)),
+      Math.min(height - size, Math.max(0, y * height - size / 2)),
+      size,
+    ]
+    const matches = await recognizeCrop(session, labels, image, false, crop)
+    if (matches.length === 1) regions.push(matches[0].label)
+  }
+  return [...new Set(regions)]
+}
+async function recognizeCrop(session, labels, image, fullImage, region) {
   const size = 224
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = size
@@ -50,7 +68,10 @@ async function recognizeCrop(session, labels, image, fullImage) {
   context.imageSmoothingQuality = 'high'
   const width = image.naturalWidth
   const height = image.naturalHeight
-  if (fullImage) {
+  if (region) {
+    const [x, y, crop] = region
+    context.drawImage(image, x, y, crop, crop, 0, 0, size, size)
+  } else if (fullImage) {
     const scale = size / Math.max(width, height)
     context.fillStyle = 'rgb(123,117,104)'
     context.fillRect(0, 0, size, size)

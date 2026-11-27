@@ -1,3 +1,4 @@
+import {photoMeals, matchingPhotoMeals, distributeMealWeight} from './photo-meal.js'
 import foodRows from './foods-data.js'
 import riceCakeRows from './rice-cake-foods.js?v=1'
 import israeliMarketRows from './israeli-market-foods.js?v=1'
@@ -121,6 +122,8 @@ let voiceMode = false
 let voiceRecognition
 let voiceTranscript = ''
 let voiceIngredients = []
+let photoMealActive = false
+let photoIngredientIndex = 0
 // Estimate includes a small amount of the cooking sauce.
 const cookedMeatballsWithGreens = ['meatballs-oil-greens', 'קציצות מבושלות עם שמן ועלים', 200,
   [['קציצה בינונית', 65]], 'קציצה קציצות בשר קציצה מבושלת עלים ירוקים עשבי תיבול פטרוזיליה כוסברה סלרי',
@@ -314,6 +317,7 @@ function foldSimilarHebrewLetters(text) {
 }
 function findFoodMatches(name, spoken) {
   const query = normalize(name).replace(/^נסקפה(?= |$)/, 'נס קפה').replace(/^מרקים(?= |$)/, 'מרק')
+    .replace(/^מרק של קוסקוס$/, 'מרק לקוסקוס')
   if (!query) return []
   const chicken = cookedChickenMatches(query)
   if (chicken.length) return chicken
@@ -612,38 +616,47 @@ function processVoiceMeal(autoSave) {
 function resetVoiceIngredients() {
   for (const row of voiceIngredients) row.controller?.abort()
   voiceIngredients = []
+  photoMealActive = false
+  $('photoMealFields').hidden = true
+  $('photoMealWeight').value = ''
+  $('photoMealIngredient').value = ''
+  $('voiceEditMeal').textContent = 'עריכת מה שאמרתי'
   $('voiceIngredients').replaceChildren()
   $('voiceMealTotal').hidden = $('voiceIngredientSection').hidden = true
   $('foodLookup').hidden = false
   $('voiceSearchMeal').hidden = !voiceMode
   $('voiceOnlineSingle').hidden = true
 }
-function openVoiceIngredients(parts) {
+function openVoiceIngredients(parts, fromPhoto = false) {
   resetVoiceIngredients()
   clearCatalog()
   clearSelection()
   $('foodLookup').hidden = true
   $('voiceIngredientSection').hidden = false
+  photoMealActive = fromPhoto
+  $('photoMealFields').hidden = !fromPhoto
+  $('voiceEditMeal').textContent = fromPhoto ? 'חזרה לבחירת ארוחה' : 'עריכת מה שאמרתי'
+  if (fromPhoto) photoIngredientIndex = parts.length
   setVoiceStatus('בדוק את הרכיבים ואת הכמויות המשוערות. אפשר לתקן כל רכיב בנפרד.')
   voiceIngredients = parts.map(makeVoiceIngredient)
   $('voiceIngredients').replaceChildren(...voiceIngredients.map(row => row.card))
   updateVoiceMealTotal()
-  voiceIngredients.filter(row => !row.chooseChicken && !row.candidates.some(food => food.source !== 'USDA'))
+  if (!fromPhoto) voiceIngredients.filter(row => !row.chooseChicken && !row.candidates.some(food => food.source !== 'USDA'))
     .forEach(searchVoiceIngredient)
 }
 function makeVoiceIngredient(spoken, index) {
   const card = element('fieldset', '', 'voice-ingredient')
   card.append(element('legend', spoken.query))
-  const preferred = preferredVoiceIngredient(spoken, normalize)
+  const preferred = spoken.catalogId ?? preferredVoiceIngredient(spoken, normalize)
   const matches = findFoodMatches(spoken.query, true)
   const hasSimilarSpelling = matches.some(entry => entry.similarSound)
-  const preferredFood = hasSimilarSpelling ? undefined : foods.find(food => food.id === preferred)
+  const preferredFood = hasSimilarSpelling && !spoken.catalogId ? undefined : foods.find(food => food.id === preferred)
   const matchingFoods = (showAllFoodMatches(spoken.query, matches) ? matches : matches.slice(0, 15)).map(entry => entry.food)
   const candidates = [...new Map([...(preferredFood ? [preferredFood] : []), ...matchingFoods]
     .map(food => [food.id, food])).values()]
   const product = element('select', '')
   product.id = 'voiceProduct' + index
-  const chooseChicken = matches[0]?.chickenCut
+  const chooseChicken = !photoMealActive && matches[0]?.chickenCut
   const productLabel = element('label', chooseChicken ? 'חלק העוף' : 'מזון מהמאגר')
   productLabel.htmlFor = product.id
   const quantity = element('input', '')
@@ -662,21 +675,34 @@ function makeVoiceIngredient(spoken, index) {
   const online = button('חיפוש באינטרנט', 'quiet', () => searchVoiceIngredient(row))
   online.hidden = chooseChicken
   card.append(productLabel, product, online, networkStatus, unit, serving, quantityLabel, quantity, details)
+  if (photoMealActive) {
+    card.append(button('הסר רכיב', 'quiet', () => {
+      row.controller?.abort()
+      voiceIngredients = voiceIngredients.filter(ingredient => ingredient !== row)
+      card.remove()
+      $('photoMealWeight').value = ''
+      $('photoMealWeight').disabled = !voiceIngredients.length
+      updateVoiceMealTotal()
+    }))
+  }
   setVoiceIngredientOptions(row)
-  if (!hasSimilarSpelling && !requiresFoodChoice(spoken.query) && (preferredFood || matches[0]?.exact || matches[0]?.rank < 5)) {
+  if ((spoken.catalogId && preferredFood) || (!hasSimilarSpelling && !requiresFoodChoice(spoken.query) && (preferredFood || matches[0]?.exact || matches[0]?.rank < 5))) {
     product.value = String(candidates[0].id)
   }
   product.addEventListener('change', () => setVoiceIngredientQuantity(row))
   quantity.addEventListener('input', () => {
     row.estimate = ''
+    if (photoMealActive) $('photoMealWeight').value = ''
     updateVoiceMealTotal()
   })
   unit.addEventListener('change', () => {
+    if (photoMealActive) $('photoMealWeight').value = ''
     setVoiceQuantityLabel(row)
     updateVoiceMealTotal()
   })
   serving.addEventListener('change', () => {
     row.estimate = ''
+    if (photoMealActive) $('photoMealWeight').value = ''
     row.quantity.value = serving.value ? 1 : ''
     setVoiceQuantityLabel(row)
     updateVoiceMealTotal()
@@ -700,7 +726,7 @@ function chosenVoiceIngredient(row) {
 }
 function setVoiceIngredientQuantity(row, refresh = true) {
   const food = chosenVoiceIngredient(row)
-  const proposed = food ? voiceIngredientDefault(food, row.spoken, normalize) : {}
+  const proposed = food && !photoMealActive ? voiceIngredientDefault(food, row.spoken, normalize) : {}
   const unit = food?.unit ?? (food && food.source !== 'Open Food Facts' ? 'g' : '')
   row.unit.value = unit || proposed.unit || ''
   row.unit.hidden = !food || Boolean(unit)
@@ -712,7 +738,10 @@ function setVoiceIngredientQuantity(row, refresh = true) {
   const spokenMeasure = options.find(option => option.dataset.name === proposed.serving?.name
     && Number(option.dataset.grams) === proposed.serving.grams)
   row.serving.value = spokenMeasure?.value ?? ''
-  if (!row.chooseChicken || !row.quantity.value) {
+  if (photoMealActive && row.unit.value !== 'g') {
+    $('photoMealWeight').value = ''
+  }
+  if ((!photoMealActive && !row.chooseChicken) || !row.quantity.value) {
     row.quantity.value = spokenMeasure ? proposed.serving.count : proposed.grams ?? ''
   }
   setVoiceQuantityLabel(row)
@@ -766,7 +795,7 @@ function updateVoiceMealTotal() {
       .filter(Boolean).join(' · ') : chosenVoiceIngredient(row) ? 'השלם את הכמות או יחידת המידה.' : 'בחר את המוצר שמתאים לרכיב.'
     return item
   })
-  const complete = items.every(Boolean)
+  const complete = items.length > 0 && items.every(Boolean)
   const total = $('voiceMealTotal')
   $('draftMealTotal').hidden = true
   total.hidden = !items.length
@@ -774,6 +803,53 @@ function updateVoiceMealTotal() {
     : 'יש להשלים את הרכיבים החסרים כדי לחשב את הסך הכולל.'
   $('saveMeal').disabled = !complete
 }
+function openPhotoMeal(parts) {
+  openVoiceIngredients(parts, true)
+  $('photoMealWeight').disabled = !parts.length
+  if (parts.length) $('photoMealWeight').focus()
+  else $('photoMealIngredient').focus()
+}
+$('photoMealWeight').addEventListener('input', () => {
+  if (!photoMealActive) return
+  const total = $('photoMealWeight').valueAsNumber
+  const eligible = voiceIngredients.every(row => chosenVoiceIngredient(row) && row.unit.value === 'g')
+  const weights = distributeMealWeight(eligible ? total : NaN,
+    voiceIngredients.map(row => row.spoken.weight || 1))
+  if (!weights.length) {
+    if ($('photoMealWeight').value) {
+      $('voiceMealTotal').hidden = false
+      $('voiceMealTotal').textContent = 'יש לבחור רכיבים שנמדדים בגרמים או להזין משקל לכל רכיב בנפרד.'
+      $('saveMeal').disabled = true
+    } else updateVoiceMealTotal()
+    return
+  }
+  voiceIngredients.forEach((row, index) => {
+    row.serving.value = ''
+    row.quantity.value = weights[index]
+    row.estimate = 'חלוקה משוערת ממשקל הארוחה'
+    setVoiceQuantityLabel(row)
+  })
+  updateVoiceMealTotal()
+})
+$('photoMealAdd').addEventListener('click', () => {
+  const input = $('photoMealIngredient')
+  const query = input.value.trim()
+  if (!photoMealActive || !query) return
+  const row = makeVoiceIngredient({query}, photoIngredientIndex++)
+  voiceIngredients.push(row)
+  $('voiceIngredients').append(row.card)
+  $('photoMealWeight').disabled = false
+  $('photoMealWeight').value = ''
+  input.value = ''
+  updateVoiceMealTotal()
+  row.product.focus()
+})
+$('photoMealIngredient').addEventListener('keydown', event => {
+  if (event.key !== 'Enter') return
+  event.preventDefault()
+  $('photoMealAdd').click()
+})
+
 const individualPortion = /^(?:יחידה|גביע(?: |$)|בקבוק(?: |$)|פחית(?: |$))/
 function servingOptionsFor(portions, unit) {
   return portions.filter(([, size]) => Number.isFinite(size) && size > 0)
@@ -1022,7 +1098,13 @@ $('replaceFood').addEventListener('click', () => {
   clearSelection()
   searchForFood()
 })
-$('otherPhotoFood').addEventListener('click', () => searchForFood())
+$('otherPhotoFood').addEventListener('click', () => {
+  if (photoMealActive) {
+    resetVoiceIngredients()
+    renderDraft()
+  }
+  searchForFood()
+})
 $('serving').addEventListener('change', () => {
   $('grams').value = selectedServing() ? 1 : 100
   updateQuantity()
@@ -1624,6 +1706,40 @@ restoreButton.addEventListener('click', () => {
   location.reload()
 })
 
+function photoMealChoices(labels, names) {
+  const section = element('div', '')
+  const select = element('select', '')
+  select.setAttribute('aria-label', 'בחירת ארוחה מוכרת')
+  const suggested = matchingPhotoMeals(labels)
+  const grainAlternatives = labels.some(label => ['rice','fried_rice','mujadara','couscous'].includes(label))
+    ? photoMeals.filter(meal => meal.labels.includes('couscous') && meal.parts.length > 1) : []
+  const ordered = [...new Set([...suggested, ...grainAlternatives, ...photoMeals])]
+  select.append(new Option('בחר ארוחה מוכרת או בנה ארוחה מרכיבים', ''))
+  for (const meal of ordered) {
+    select.append(new Option(meal.name, String(photoMeals.indexOf(meal))))
+  }
+  select.addEventListener('change', () => {
+    if (!select.value) return
+    const meal = photoMeals[Number(select.value)]
+    openPhotoMeal(meal.parts.map(([query, catalogId, weight]) => ({query, catalogId, weight})))
+    $('photoStatus').textContent = meal.name + ' · בדוק את הרכיבים לפני השמירה.'
+  })
+  if (names.length > 1) {
+    section.append(button('בדוק את רכיבי הצלחת', 'secondary', () => {
+      openPhotoMeal(names.map(query => ({query})))
+    }))
+  }
+  if (grainAlternatives.length && !suggested.some(meal => meal.labels.includes('couscous'))) {
+    const alternative = grainAlternatives[0]
+    section.append(button('זה קוסקוס עם מרק ירקות', 'secondary', () => {
+      select.value = String(photoMeals.indexOf(alternative))
+      select.dispatchEvent(new Event('change'))
+    }))
+  }
+  section.append(select, button('בנה ארוחה מרכיבים', 'quiet', () => openPhotoMeal([])))
+  return section
+}
+
 async function recognize(file) {
   if (!file) return
   const run = ++photoRun
@@ -1633,6 +1749,10 @@ async function recognize(file) {
   if (objectURL) URL.revokeObjectURL(objectURL)
   objectURL = URL.createObjectURL(file)
   const image = $('photoPreview')
+  if (photoMealActive) {
+    resetVoiceIngredients()
+    renderDraft()
+  }
   image.src = objectURL
   image.hidden = false
   $('photoCandidates').replaceChildren()
@@ -1649,10 +1769,13 @@ async function recognize(file) {
       return
     }
     $('photoStatus').textContent = 'טוען את זיהוי המזון. בפעם הראשונה זה עשוי לקחת מעט זמן…'
-    const model = await import('./vision.js?v=2')
+    const model = await import('./vision.js?v=plate-1')
     if (run !== photoRun) return
     const suggestions = await model.predict(image)
     if (run !== photoRun) return
+    const detected = await model.predictPlate(image, () => run === photoRun)
+    if (run !== photoRun) return
+    const detectedNames = detected.map(label => model.foodNames[label]).filter(Boolean)
     const names = [...new Set(suggestions.map(({label}) => model.foodNames[label]).filter(Boolean))]
     $('photoStatus').textContent = names.length
       ? suggestions[0]?.label === 'coffee'
@@ -1661,7 +1784,8 @@ async function recognize(file) {
       : 'הזיהוי לא מספיק ברור. חפש את המזון במאגר כדי להמשיך.'
     const choices = names.includes('פיתה') ? ['פיתה', 'פיתה כוסמין']
       : suggestions[0]?.label === 'coffee' ? ['נס קפה', 'סוגי קפה'] : names
-    $('photoCandidates').replaceChildren(...choices.flatMap((name) => {
+    $('photoCandidates').replaceChildren(photoMealChoices(
+      [...detected, ...suggestions.map(({label}) => label)], detectedNames), ...choices.flatMap((name) => {
       if (name === 'סוגי קפה' || name === 'נס קפה') {
         return [button(name, 'secondary', () => searchForFood(name === 'נס קפה' ? name : 'קפה'))]
       }
@@ -1672,15 +1796,24 @@ async function recognize(file) {
         return label.startsWith(query + ' ') && Number.isFinite(food.kcal)
           && !/(^| )(לא אפוי|לא מבושל|לא מוכן|בצק)( |$)/.test(label)
       }).sort((a, b) => searchRank(a, query) - searchRank(b, query) || a.name.length - b.name.length).slice(0, 2)
-      if (!matches.length) return [button(name, 'secondary', () => searchForFood(name))]
+      if (!matches.length) return [button(name, 'secondary', () => {
+        if (photoMealActive) resetVoiceIngredients()
+        searchForFood(name)
+      })]
       return matches.map((food) => {
-        const choice = button(formatRiceCakeSpelling(food.name), 'secondary', () => selectFood(food))
+        const choice = button(formatRiceCakeSpelling(food.name), 'secondary', () => {
+          if (photoMealActive) resetVoiceIngredients()
+          selectFood(food)
+        })
         choice.append(element('span', ' · ' + fmt(food.kcal) + ' קלוריות ל־100 ' + (food.unit === 'ml' ? 'מ״ל' : 'גרם')))
         return choice
       })
     }))
   } catch {
-    if (run === photoRun) $('photoStatus').textContent = 'לא הצלחנו לנתח את התמונה. אפשר להמשיך בחיפוש במאגר.'
+    if (run === photoRun) {
+      $('photoStatus').textContent = 'לא הצלחנו לזהות את התמונה. אפשר לבחור ארוחה מוכרת או להוסיף רכיבים.'
+      if (!scanOnly) $('photoCandidates').replaceChildren(photoMealChoices([], []))
+    }
   }
 }
 window.onCaloriePhoto = (dataURL, error) => {
