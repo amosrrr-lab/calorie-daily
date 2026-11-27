@@ -126,11 +126,8 @@ export function initCustomerAccess({ request, getManagerSession, recordTrialStep
     const currentVersion = version
     loading = (async () => {
       try {
-        const manager = await getManagerSession()
-        const auth = manager ?? await customerSession()
-        const access = !auth ? null : manager ? await rpc('calorie_access_status', {}, auth)
-          : await rpc('calorie_customer_access_with_trial_usage', {}, auth)
-            .catch(() => rpc('calorie_access_status', {}, auth))
+        const auth = await getManagerSession() ?? await customerSession()
+        const access = auth ? await rpc('calorie_access_status', {}, auth) : null
         if (version === currentVersion && (auth || !sentTo)) showAccess(access)
       } catch {
         if (version === currentVersion) {
