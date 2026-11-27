@@ -1,7 +1,7 @@
 const sessionKey = 'calorieDailyCustomerSession'
 const dateFormat = new Intl.DateTimeFormat('he-IL', { dateStyle: 'medium', timeZone: 'Asia/Jerusalem' })
 
-export function initCustomerAccess({ request, getManagerSession }) {
+export function initCustomerAccess({ request, getManagerSession, recordTrialStep }) {
   const byId = id => document.getElementById(id)
   const journal = byId('commercialJournal')
   const visitorLanding = byId('visitorLanding')
@@ -153,7 +153,7 @@ export function initCustomerAccess({ request, getManagerSession }) {
     email.readOnly = false
     codeLabel.hidden = code.hidden = changeEmail.hidden = true
     code.required = false
-    signIn.textContent = 'התחלת ניסיון או כניסה'
+    signIn.textContent = 'שליחת קוד למייל'
   }
 
   changeEmail.addEventListener('click', () => {
@@ -167,7 +167,9 @@ export function initCustomerAccess({ request, getManagerSession }) {
     try {
       if (!sentTo) {
         const address = email.value.trim()
+        recordTrialStep('code_request')
         await request('/auth/v1/otp', { email: address, create_user: true })
+        recordTrialStep('code_sent')
         sentTo = address
         email.readOnly = true
         codeLabel.hidden = code.hidden = changeEmail.hidden = false

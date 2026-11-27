@@ -1,4 +1,4 @@
-import { initCustomerAccess } from './customer-access.js?v=visitor-landing-1'
+import { initCustomerAccess } from './customer-access.js?v=trial-usage-1'
 
 const projectUrl = 'https://tuaotxsdvhatdwgcurti.supabase.co'
 const publishableKey = 'sb_publishable_Lg-gj43yXfs78IBoNJeuXA_6vZcaNfp'
@@ -29,20 +29,20 @@ async function request(path, payload, token) {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-    keepalive: !token && path.endsWith('/record_calorie_usage'),
+    keepalive: !token && (path.endsWith('/record_calorie_usage') || path.endsWith('/record_calorie_trial_step')),
   })
   if (!response.ok) throw new Error(String(response.status))
   return response.status === 204 ? null : response.json()
 }
 
-function record(eventName) {
+function record(eventName, rpcName = 'record_calorie_usage') {
   try {
     let browserId = localStorage.getItem(browserStorageKey)
     if (!browserId) {
       browserId = crypto.randomUUID()
       localStorage.setItem(browserStorageKey, browserId)
     }
-    void request('/rest/v1/rpc/record_calorie_usage', {
+    void request('/rest/v1/rpc/' + rpcName, {
       event_name: eventName,
       browser_id: browserId,
     }).catch(() => {})
@@ -50,6 +50,14 @@ function record(eventName) {
     // Usage measurement must not interfere with using the app.
   }
 }
+
+function recordTrialStep(step) {
+  if (!adminMode && !readSession()) record(step, 'record_calorie_trial_step')
+}
+
+document.querySelector('#visitorTrialLink').addEventListener('click', () => {
+  recordTrialStep('trial_click')
+})
 
 const installEntry = document.querySelector('#installEntry')
 const installButton = document.querySelector('#usageInstall')
@@ -127,10 +135,11 @@ const status = panel.querySelector('[role="status"]')
 const report = panel.querySelector('#usageReport')
 const period = report.querySelector('select')
 const rows = report.querySelector('tbody')
+const trialReportStatus = report.querySelector('#trialReportStatus')
 const signOutButton = panel.querySelector('#usageSignOut')
 let session = readSession()
 let reportRequest = 0
-const commerce = initCustomerAccess({ request, getManagerSession: getSession })
+const commerce = initCustomerAccess({ request, getManagerSession: getSession, recordTrialStep })
 
 function readSession() {
   try {
@@ -209,16 +218,23 @@ async function loadReport(callbackSession) {
       clearReport()
       return
     }
-    const data = await request('/rest/v1/rpc/calorie_usage_summary', {
-      days: Number(period.value),
-    }, activeSession.token)
+    const filters = { days: Number(period.value) }
+    const [data, trialData] = await Promise.all([
+      request('/rest/v1/rpc/calorie_usage_summary', filters, activeSession.token),
+      request('/rest/v1/rpc/calorie_trial_usage_summary', filters, activeSession.token).catch(() => null),
+    ])
     if (requestId !== reportRequest) return
     if (callbackSession) saveSession(callbackSession)
+    const trialByDay = new Map(trialData?.map(entry => [entry.day, entry]))
+    trialReportStatus.hidden = Boolean(trialData)
     rows.replaceChildren(...data.map(entry => {
       const row = document.createElement('tr')
-      for (const value of [entry.day, entry.opens, entry.browsers, entry.install_clicks, entry.installs]) {
+      const trial = trialByDay.get(entry.day)
+      const values = [entry.day, entry.opens, entry.browsers, trial?.trial_clicks,
+        trial?.code_requests, trial?.codes_sent, trial?.trials_started, entry.install_clicks, entry.installs]
+      for (const value of values) {
         const cell = row.insertCell()
-        cell.textContent = value
+        cell.textContent = value ?? '—'
       }
       return row
     }))
